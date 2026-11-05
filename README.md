@@ -21,17 +21,16 @@ flowchart LR
 ```bash
 git clone https://github.com/jawad1569/ECGAnomaly.git
 cd ECGAnomaly
-make setup                          # pip install -r requirements.txt
-# download PTB-XL 1.0.3 from PhysioNet and unzip it into dataset/ (see below):
-#   dataset/ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.3/
-make data                           # step 1: validate + build features
-make train                          # step 2: AutoML + MLflow + save model
-make test                           # pytest (13 tests; needs the trained model)
-make dev                            # API on http://127.0.0.1:8000/docs (needs `make train` first)
+make setup     # install dependencies
+# download PTB-XL 1.0.3 (PhysioNet) and unzip it into dataset/
+make data      # step 1: validate + build features
+make train     # step 2: AutoML + MLflow + save model
+make test      # pytest, 13 tests (needs the trained model)
+make dev       # API at http://127.0.0.1:8000/docs (run make train first)
 mlflow ui --backend-store-uri sqlite:///mlflow.db   # inspect runs
 ```
 
-`AUTOML_TIME_BUDGET=<seconds>` controls the AutoML search time (default 240).
+Expected folder: `dataset/ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.3/`. `AUTOML_TIME_BUDGET=<seconds>` controls the AutoML search time (default 240).
 
 Try the running API with a sample ECG (any CSV with `channel-0 ... channel-11` columns works):
 
