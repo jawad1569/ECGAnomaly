@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ECG Anomaly Detection</title>
+<style>
+  :root {
+    --bg: #eceef1;
+    --slide: #ffffff;
+    --ink: #1f2933;
+    --muted: #5b6573;
+    --line: #d5d9df;
+    --soft: #f5f6f8;
+    --accent: #b3261e;
+    --accent-soft: #fbeceb;
+    --good: #1e7a4c;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--bg); overflow: hidden; }
+  body {
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- Stage: fixed 1280x720, scaled to fit ---------- */
+  #stage {
+    position: absolute; left: 50%; top: 50%;
+    width: 1280px; height: 720px;
+    transform-origin: center center;
+  }
+  .slide {
+    position: absolute; inset: 0;
+    background: var(--slide);
+    padding: 64px 80px 72px;
+    display: none; flex-direction: column;
+    box-shadow: 0 6px 30px rgba(0,0,0,.12);
+  }
+  .slide.active { display: flex; }
+
+  /* ---------- Type ---------- */
+  .kicker { font-size: 18px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin-bottom: 10px; }
+  h1 { font-size: 64px; line-height: 1.05; font-weight: 700; letter-spacing: -.01em; }
+  h2 { font-size: 42px; line-height: 1.15; font-weight: 700; margin-bottom: 30px; }
+  h3 { font-size: 24px; font-weight: 700; margin-bottom: 12px; }
+  p, li { font-size: 24px; line-height: 1.45; }
+  .lead { font-size: 28px; line-height: 1.4; color: var(--muted); max-width: 980px; }
+  ul.points { list-style: none; display: grid; gap: 16px; }
+  ul.points li { padding-left: 30px; position: relative; }
+  ul.points li::before { content: ""; position: absolute; left: 4px; top: 14px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
+  code, .mono { font-family: Consolas, "Cascadia Mono", Menlo, monospace; font-size: .9em; background: var(--soft); border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px; }
+  strong { font-weight: 700; }
+  .accent { color: var(--accent); }
+
+  /* ---------- Footer on each slide ---------- */
+  .foot {
+    position: absolute; left: 80px; right: 80px; bottom: 26px;
+    display: flex; justify-content: space-between;
+    font-size: 15px; color: var(--muted);
+    border-top: 1px solid var(--line); padding-top: 12px;
+  }
+
+  /* ---------- Layout helpers ---------- */
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; flex: 1; }
+  .cols-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; }
+  .card { border: 1px solid var(--line); border-radius: 14px; padding: 26px 28px; background: #fff; }
+  .card.hot { border: 2px solid var(--accent); background: var(--accent-soft); }
+  .card p, .card li { font-size: 21px; }
+  .stat { font-size: 52px; font-weight: 700; color: var(--accent); line-height: 1; margin-bottom: 8px; }
+  .stat-label { font-size: 19px; color: var(--muted); line-height: 1.35; }
+
+  /* ---------- Title slide ---------- */
+  .title-slide { justify-content: center; }
+  .title-slide h1 { font-size: 80px; margin-bottom: 18px; }
+  .title-slide .lead { margin-bottom: 44px; }
+  .ecg { position: absolute; left: 0; right: 0; top: 70px; height: 110px; opacity: .9; }
+  .team { display: flex; gap: 56px; }
+  .team div { font-size: 22px; }
+
+  /* ---------- Pipeline diagram ---------- */
+  .pipe { display: flex; align-items: center; gap: 0; margin: 10px 0 34px; }
+  .node {
+    flex: 1; min-height: 104px; border: 1.5px solid #9aa3ad; border-radius: 12px;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    text-align: center; padding: 10px 8px; background: #fff;
+  }
+  .node b { font-size: 20px; }
+  .node small { font-size: 16px; color: var(--muted); margin-top: 4px; line-height: 1.3; }
+  .node.hot { border: 2.5px solid var(--accent); background: var(--accent-soft); }
+  .arrow { width: 34px; flex: 0 0 34px; height: 2px; background: #9aa3ad; position: relative; }
+  .arrow::after { content: ""; position: absolute; right: -1px; top: -6px; border-left: 10px solid #9aa3ad; border-top: 7px solid transparent; border-bottom: 7px solid transparent; }
+  .under { display: flex; gap: 34px; }
+  .under .card { flex: 1; }
+
+  /* ---------- Tables ---------- */
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 11px 14px; font-size: 20px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 16px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+  td:last-child, th:last-child { white-space: nowrap; }
+  .tag { font-family: Consolas, Menlo, monospace; font-size: 18px; color: var(--muted); font-weight: 400; margin-left: 14px; letter-spacing: 0; }
+
+  /* ---------- Milestone task grid ---------- */
+  .tasks { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 28px; }
+  .tasks .card { padding: 18px 24px; }
+  .tasks h3 { font-size: 22px; margin-bottom: 6px; }
+  .tasks h3 i { font-style: normal; color: var(--accent); margin-right: 10px; }
+  .tasks p { font-size: 19px; line-height: 1.4; color: var(--muted); }
+  .tasks .card.stretch { border-style: dashed; background: var(--soft); }
+
+  /* ---------- Endpoints ---------- */
+  .ep { display: grid; grid-template-columns: 210px 1fr; gap: 14px 22px; align-items: baseline; }
+  .ep .verb { font-family: Consolas, Menlo, monospace; font-size: 21px; font-weight: 700; }
+  .ep .verb em { font-style: normal; color: var(--accent); margin-right: 8px; font-size: 16px; }
+  .ep p { font-size: 22px; }
+
+  /* ---------- Stack grid ---------- */
+  .stack { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+  .stack .card { padding: 22px; }
+  .stack h3 { font-size: 15px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-bottom: 8px; font-weight: 600; }
+  .stack p { font-size: 22px; font-weight: 600; line-height: 1.3; }
+
+  /* ---------- Risks ---------- */
+  .risk td:first-child { font-weight: 600; width: 44%; }
+  .risk td:last-child { white-space: normal; color: var(--ink); }
+
+  /* ---------- Speaker notes ---------- */
+  .notes { display: none; }
+  #notes-panel {
+    position: fixed; left: 0; right: 0; bottom: 0; max-height: 34vh; overflow: auto;
+    background: #111827; color: #e5e7eb; font-size: 17px; line-height: 1.5;
+    padding: 14px 22px; display: none; z-index: 10;
+  }
+  #notes-panel.show { display: block; }
+
+  /* ---------- Chrome ---------- */
+  #progress { position: fixed; left: 0; bottom: 0; height: 4px; background: var(--accent); transition: width .2s; z-index: 5; }
+  #hint { position: fixed; right: 14px; top: 10px; font-size: 13px; color: #6b7280; z-index: 5; transition: opacity .6s; }
+  #hint.gone { opacity: 0; pointer-events: none; }
+
+  /* ---------- Print: one slide per page ---------- */
+  @media print {
+    @page { size: 1280px 720px; margin: 0; }
+    html, body { overflow: visible; background: #fff; height: auto; }
+    #stage { position: static; transform: none !important; width: auto; height: auto; }
+    .slide { display: flex !important; position: relative; width: 1280px; height: 720px; box-shadow: none; page-break-after: always; break-after: page; }
+    #progress, #hint, #notes-panel { display: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div id="stage">
+
+  <!-- 1. Title -->
+  <section class="slide title-slide">
+    <svg class="ecg" viewBox="0 0 1280 110" preserveAspectRatio="none" aria-hidden="true">
+      <defs>
+        <path id="beat" d="M0 60 L40 60 Q52 46 64 60 L84 60 L92 70 L104 8 L116 84 L126 60 L150 60 Q168 40 186 60 L213 60" fill="none" stroke="#b3261e" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+      </defs>
+      <use href="#beat" x="0"/><use href="#beat" x="213"/><use href="#beat" x="426"/>
+      <use href="#beat" x="639"/><use href="#beat" x="852"/><use href="#beat" x="1065"/>
+    </svg>
+    <div class="kicker">Milestone 0 &middot; Project Proposal</div>
+    <h1>ECG Anomaly Detection</h1>
+    <p class="lead">Taking one ECG classifier from data to a deployed, monitored API that is safe to update.</p>
+    <div class="team">
+      <div><strong>Muhammad Jawad Maqsood</strong></div>
+      <div><strong>Sudharth Kumar</strong></div>
+    </div>
+    <div class="foot"><span>MLOps Course Project &middot; BS Computer Science &middot; Fall 2026</span><span></span></div>
+    <div class="notes">Introduce the team and the one-line idea: we flag abnormal ECGs, and the focus is the full MLOps loop around the model, not the model itself.</div>
+  </section>
+
+  <!-- 2. Problem -->
+  <section class="slide">
+    <div class="kicker">Problem</div>
+    <h2>Abnormal ECGs wait in the same queue as normal ones</h2>
+    <div class="cols">
+      <ul class="points">
+        <li>The ECG is the most common first test for heart disease.</li>
+        <li>Reading it needs trained staff, so recordings queue up.</li>
+        <li>An automatic <strong>normal / abnormal</strong> flag helps decide what a doctor reviews first.</li>
+      </ul>
+      <div class="card hot">
+        <h3>The MLOps problem</h3>
+        <p>A model in a notebook helps no one. It must be <strong>reproducible, served, packaged, deployed and monitored</strong>, and easy to update or roll back.</p>
+      </div>
+    </div>
+    <div class="foot"><span>ECG Anomaly Detection</span><span class="num"></span></div>
+    <div class="notes">Keep this short. The clinical motivation is triage; the course motivation is that a notebook model is not a usable system.</div>
+  </section>
+
+  <!-- 3. Solution / pipeline -->
+  <section class="slide">
+    <div class="kicker">Proposed solution</div>
+    <h2>One simple classifier through the full loop</h2>
+    <div class="pipe">
+      <div class="node"><b>PTB-XL CSVs</b><small>signal + labels</small></div>
+      <div class="arrow"></div>
+      <div class="node"><b>prepare_data.py</b><small>validate, features, split</small></div>
+      <div class="arrow"></div>
+      <div class="node"><b>train.py</b><small>3+ models, MLflow</small></div>
+      <div class="arrow"></div>
+      <div class="node"><b>Model file</b><small>versioned .joblib</small></div>
+      <div class="arrow"></div>
+      <div class="node hot"><b>FastAPI</b><small>in Docker</small></div>
+      <div class="arrow"></div>
+      <div class="node"><b>AWS EC2</b><small>public URL</small></div>
+    </div>
+    <div class="under">
+      <div class="card"><h3>Task</h3><p>Binary: is a 12-lead ECG <strong>normal</strong> or <strong>abnormal</strong>?</p></div>
+      <div class="card"><h3>Behind it</h3><p>GitHub Actions lints, tests and builds the image on every push.</p></div>
+      <div class="card"><h3>Around it</h3><p><code>/health</code> and <code>/metrics</code> for monitoring; rollback by image tag.</p></div>
+    </div>
+    <div class="foot"><span>ECG Anomaly Detection</span><span class="num"></span></div>
+    <div class="notes">Walk the arrow left to right. Emphasise that the API in Docker is the centre of the project and everything else feeds or protects it.</div>
+  </section>
+
+  <!-- 4. Dataset -->
+  <section class="slide">
+    <div class="kicker">Dataset</div>
+    <h2>PTB-XL Reformatted: real clinical ECGs with expert labels</h2>
+    <div class="cols-3" style="margin-bottom:34px">
+      <div class="card"><div class="stat">~21,800</div><div class="stat-label">ECG recordings in PTB-XL, de-identified and public</div></div>
+      <div class="card"><div class="stat">12 leads</div><div class="stat-label">10 seconds each, about 1,000 samples per lead at 100&nbsp;Hz</div></div>
+      <div class="card"><div class="stat">5 classes</div><div class="stat-label">labelled by cardiologists, grouped into normal vs abnormal</div></div>
+    </div>
+    <ul class="points">
+      <li>Two files: <code>train_signal.csv</code> (one row per time step) and <code>train_meta.csv</code> (labels), joined on <code>ecg_id</code>.</li>
+      <li>Target: <strong>0 = normal</strong> (NORM), <strong>1 = abnormal</strong> (MI, STTC, CD or HYP).</li>
+      <li>Only a small sample is committed; the full data is downloaded by <code>make data</code>.</li>
+    </ul>
+    <div class="foot"><span>Source: PTB-XL, PhysioNet (Wagner et al., 2020)</span><span class="num"></span></div>
+    <div class="notes">MI = myocardial infarction, STTC = ST/T change, CD = conduction disturbance, HYP = hypertrophy. We collapse them into one "abnormal" class to keep the task simple.</div>
+  </section>
+
+  <!-- 5. Model & metric -->
+  <section class="slide">
+    <div class="kicker">Model &amp; evaluation</div>
+    <h2>Simple features, three model families, one metric</h2>
+    <div class="cols">
+      <div>
+        <h3>Pipeline</h3>
+        <ul class="points">
+          <li><strong>Validate</strong>: missing values, 12 leads, length, amplitude range.</li>
+          <li><strong>Features</strong>: 9 statistics per lead = 108 features.</li>
+          <li><strong>Split</strong>: fixed, stratified 80/20 train/test.</li>
+          <li><strong>Models</strong>: logistic regression, random forest, gradient boosting (scikit-learn).</li>
+        </ul>
+      </div>
+      <div style="display:grid; gap:22px; align-content:start">
+        <div class="card hot">
+          <h3>Metric: F1 of the abnormal class</h3>
+          <p>Balances missed abnormal ECGs against false alarms. Accuracy alone would hide errors when classes are unequal.</p>
+        </div>
+        <div class="card">
+          <h3>MLflow</h3>
+          <p>Every run logs parameters, F1 and the model. At least 3 runs; the best one is justified in the README.</p>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span>ECG Anomaly Detection</span><span class="num"></span></div>
+    <div class="notes">Tuning uses 5-fold cross-validation on the training set only; the test set is scored once.</div>
+  </section>
+
+  <!-- 6. API -->
+  <section class="slide">
+    <div class="kicker">Serving</div>
+    <h2>A FastAPI service with validated inputs</h2>
+    <div class="ep" style="margin-bottom:34px">
+      <div class="verb"><em>POST</em>/predict</div><p>12-lead signal in &rarr; label, probability and model version out.</p>
+      <div class="verb"><em>POST</em>/explain</div><p>Prediction plus which leads drove it (masking one lead at a time).</p>
+      <div class="verb"><em>GET</em>/health</div><p>Liveness check, also used by the Docker healthcheck.</p>
+      <div class="verb"><em>GET</em>/metrics</div><p>Request count and average latency for monitoring.</p>
+      <div class="verb"><em>GET</em>/docs</div><p>Auto-generated API documentation.</p>
+    </div>
+    <p class="lead" style="font-size:23px">Pydantic rejects bad input (wrong shape, missing leads) with a clear error before the model runs.</p>
+    <div class="foot"><span>ECG Anomaly Detection</span><span class="num"></span></div>
+    <div class="notes">/explain is required for the final demo. It needs no extra library: we blank out each lead and measure how much the probability changes.</div>
+  </section>
+
+  <!-- 7. Deployment & safe updates -->
+  <section class="slide">
+    <div class="kicker">Deployment &amp; updates</div>
+    <h2>Deploy with one command, update safely, roll back fast</h2>
+    <div class="cols-3">
+      <div class="card"><h3>Package</h3><p>Dockerfile with the model, code and a healthcheck on <code>/health</code>. Runs with one documented command.</p></div>
+      <div class="card"><h3>Automate</h3><p>GitHub Actions: ruff lint, pytest, Docker build on every push. Images tagged by commit and pushed to GHCR.</p></div>
+      <div class="card"><h3>Deploy</h3><p>One AWS EC2 instance runs the container behind a public URL.</p></div>
+      <div class="card hot"><h3>Only if better</h3><p>Models saved as <code>ecg_model_vN</code>. A retrained model replaces the live one only if its F1 is at least as good.</p></div>
+      <div class="card"><h3>Roll back</h3><p>Run the previous image tag. Steps written and rehearsed in <code>RUNBOOK.md</code>.</p></div>
+      <div class="card"><h3>Monitor</h3><p>Request count and average latency from <code>/metrics</code> and structured logs.</p></div>
+    </div>
+    <div class="foot"><span>ECG Anomaly Detection</span><span class="num"></span></div>
+    <div class="notes">This is where the continuous-improvement idea lives: every change is tested, every model is versioned, and a worse model never replaces a better one.</div>
+  </section>
+
+  <!-- 8. Milestone 1 -->
+  <section class="slide">
+    <div class="kicker">Plan &middot; Milestone 1</div>
+    <h2>Model &amp; API <span class="tag">v1.0-milestone1</span></h2>
+    <div class="tasks">
+      <div class="card"><h3><i>1</i>Repository setup</h3><p>GitHub repo, LICENSE, <code>make setup</code> and a <code>make data</code> download script.</p></div>
+      <div class="card"><h3><i>2</i>Data preparation</h3><p><code>prepare_data.py</code>: validate signals, build 108 features, stratified split.</p></div>
+      <div class="card"><h3><i>3</i>Training</h3><p><code>train.py</code>: 3+ model runs logged in MLflow; best model saved as a versioned file.</p></div>
+      <div class="card hot"><h3><i>4</i>API</h3><p><code>app.py</code>: <code>/predict</code>, <code>/explain</code> and <code>/health</code> with Pydantic input validation.</p></div>
+      <div class="card"><h3><i>5</i>Tests</h3><p>pytest for data checks, model loading and the API endpoints.</p></div>
+      <div class="card"><h3><i>6</i>Documentation</h3><p>README, CONTRIBUTION and AI_USAGE files.</p></div>
+    </div>
+    <div class="foot"><span>Feature branches, one peer approval per pull request to main</span><span class="num"></span></div>
+    <div class="notes">Milestone 1 ends with a model that runs locally behind an API, fully reproducible from a clean clone. Mention the branching rule (feat/, fix/, infra/) and that commits will be spread across the semester.</div>
+  </section>
+
+  <!-- 9. Milestone 2 -->
+  <section class="slide">
+    <div class="kicker">Plan &middot; Milestone 2</div>
+    <h2>Docker, CI/CD &amp; Deployment <span class="tag">v2.0-milestone2</span></h2>
+    <div class="tasks">
+      <div class="card"><h3><i>1</i>Containerise</h3><p>Dockerfile with the model, code and a healthcheck on <code>/health</code>.</p></div>
+      <div class="card"><h3><i>2</i>CI pipeline</h3><p><code>ci.yml</code>: ruff lint, pytest and Docker build; images tagged by commit, pushed to GHCR.</p></div>
+      <div class="card hot"><h3><i>3</i>Deploy</h3><p>Container on AWS EC2 behind a public URL, with cURL examples.</p></div>
+      <div class="card"><h3><i>4</i>Monitoring</h3><p><code>/metrics</code> (request count, latency) and structured request logs.</p></div>
+      <div class="card"><h3><i>5</i>Runbook</h3><p><code>RUNBOOK.md</code>: redeploy and rollback steps, rehearsed.</p></div>
+      <div class="card stretch"><h3><i>+</i>Stretch goal</h3><p>Retrain workflow in CI; promote a new model only if its F1 is at least as good.</p></div>
+    </div>
+    <div class="foot"><span>ECG Anomaly Detection</span><span class="num"></span></div>
+    <div class="notes">Milestone 2 turns the local API into a deployed, monitored service that can be updated and rolled back safely. The stretch goal is automated retraining.</div>
+  </section>
+
+  <!-- 10. Tech stack -->
+  <section class="slide">
+    <div class="kicker">Tech stack</div>
+    <h2>Only the tools each step needs</h2>
+    <div class="stack">
+      <div class="card"><h3>Language &amp; API</h3><p>Python 3.11<br>FastAPI, Pydantic</p></div>
+      <div class="card"><h3>Model</h3><p>scikit-learn<br>pandas, joblib</p></div>
+      <div class="card"><h3>Tracking</h3><p>MLflow<br>(local)</p></div>
+      <div class="card"><h3>Testing</h3><p>pytest<br>ruff</p></div>
+      <div class="card"><h3>Container</h3><p>Docker<br>GHCR</p></div>
+      <div class="card"><h3>CI</h3><p>GitHub Actions</p></div>
+      <div class="card"><h3>Deployment</h3><p>AWS EC2<br>(one instance)</p></div>
+      <div class="card"><h3>Monitoring</h3><p>/health, /metrics<br>structured logs</p></div>
+    </div>
+    <div class="foot"><span>ECG Anomaly Detection</span><span class="num"></span></div>
+    <div class="notes">This matches the required course stack. A Makefile ties it together: make setup, data, train, test, run.</div>
+  </section>
+
+  <!-- 11. Risks -->
+  <section class="slide">
+    <div class="kicker">Risks</div>
+    <h2>Risks and mitigations</h2>
+    <table class="risk">
+      <tr><th>Risk</th><th>Mitigation</th></tr>
+      <tr><td>Unequal class sizes make accuracy misleading</td><td>F1 of the abnormal class; stratified split; class weights</td></tr>
+      <tr><td>Signal CSV is large and slow to load</td><td>Read in chunks; cache features; small sample for tests and CI</td></tr>
+      <tr><td>Works locally, fails from a clean clone</td><td>Pinned requirements, Makefile, CI runs every step from scratch</td></tr>
+      <tr><td>A deployment breaks the live service</td><td>Images tagged by commit; tested rollback in RUNBOOK.md</td></tr>
+      <tr><td>Cloud cost and free-tier limits</td><td>Smallest instance</td></tr>
+    </table>
+    <div class="foot"><span>ECG Anomaly Detection</span><span class="num"></span></div>
+    <div class="notes">Pick one or two risks to talk about if time is short: class balance and rollback are the strongest.</div>
+  </section>
+
+  <!-- 12. Close -->
+  <section class="slide title-slide">
+    <div class="kicker">Summary</div>
+    <h1 style="font-size:60px">Data &rarr; model &rarr; API &rarr; deployment &rarr; monitoring</h1>
+    <p class="lead">A simple ECG classifier, fully reproducible, safely updated and always one command away from a rollback.</p>
+    <p style="font-size:34px; font-weight:700; color:var(--accent)">Thank you &middot; Questions?</p>
+    <div class="foot"><span>Muhammad Jawad Maqsood &middot; Sudharth Kumar</span><span class="num"></span></div>
+    <div class="notes">Invite questions. Likely ones: why binary instead of 5 classes (simpler, clearer metric), why EC2 (control, free tier), why F1 (class balance).</div>
+  </section>
+
+</div>
+
+<div id="progress"></div>
+<div id="hint">&larr; &rarr; to move &middot; F fullscreen &middot; N notes</div>
+<div id="notes-panel"></div>
+
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const stage = document.getElementById('stage');
+  const progress = document.getElementById('progress');
+  const notesPanel = document.getElementById('notes-panel');
+  const hint = document.getElementById('hint');
+  let current = 0;
+
+  slides.forEach((s, i) => {
+    const n = s.querySelector('.num');
+    if (n) n.textContent = (i + 1) + ' / ' + slides.length;
+  });
+
+  function fit() {
+    let scale = Math.min(window.innerWidth / 1280, window.innerHeight / 720);
+    if (!(scale > 0)) scale = 1;  // window not laid out yet (e.g. opened in a background tab)
+    stage.style.transform = 'translate(-50%, -50%) scale(' + scale + ')';
+  }
+
+  function show(i) {
+    current = Math.max(0, Math.min(slides.length - 1, i));
+    slides.forEach((s, k) => s.classList.toggle('active', k === current));
+    progress.style.width = ((current + 1) / slides.length * 100) + '%';
+    const note = slides[current].querySelector('.notes');
+    notesPanel.textContent = note ? note.textContent : '';
+    if (location.hash !== '#' + (current + 1)) history.replaceState(null, '', '#' + (current + 1));
+  }
+
+  document.addEventListener('keydown', e => {
+    if (['ArrowRight', 'PageDown', ' ', 'Enter'].includes(e.key)) { e.preventDefault(); show(current + 1); }
+    else if (['ArrowLeft', 'PageUp', 'Backspace'].includes(e.key)) { e.preventDefault(); show(current - 1); }
+    else if (e.key === 'Home') show(0);
+    else if (e.key === 'End') show(slides.length - 1);
+    else if (e.key === 'f' || e.key === 'F') {
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
+      else document.exitFullscreen();
+    }
+    else if (e.key === 'n' || e.key === 'N') notesPanel.classList.toggle('show');
+  });
+
+  document.addEventListener('click', e => {
+    if (e.target.closest('#notes-panel')) return;
+    show(e.clientX > window.innerWidth / 3 ? current + 1 : current - 1);
+  });
+
+  setTimeout(() => hint.classList.add('gone'), 4000);
+
+  window.addEventListener('resize', fit);
+  document.addEventListener('visibilitychange', fit);
+  window.addEventListener('load', fit);
+  fit();
+  const start = parseInt(location.hash.slice(1), 10);
+  show(Number.isFinite(start) ? start - 1 : 0);
+</script>
+</body>
+</html>

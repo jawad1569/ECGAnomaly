@@ -1,0 +1,69 @@
+# ==========================
+# Python and Virtual Environment
+# ==========================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+venv/
+.env/
+.env*
+*.env
+.env
+
+
+# ==========================
+# Logs and Outputs
+# ==========================
+logs/
+*.log
+*.out
+*.err
+*.pid
+
+# ==========================
+# Data and Models
+# ==========================
+
+
+# ==========================
+# IDEs and OS Files
+# ==========================
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ==========================
+# Docker
+# ==========================
+*.pid
+*.sock
+
+# ==========================
+# Build and Cache
+# ==========================
+build/
+dist/
+.cache/
+pytest_cache/
+__pycache__/
+data/
+mlruns/
+docs/RAG_Pipeline.png
+
+# ==========================
+# Temporary / Generated Files
+# ==========================
+tmp/
+*.bak
+*.swp
+*.temp
+docs/PHASE1_DELIVERABLES.md
+
+# Large / local-only artifacts
+dataset/
+mlflow.db
+.pytest_cache/

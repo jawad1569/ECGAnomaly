@@ -1,0 +1,43 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files
+      - id: detect-private-key
+
+  - repo: https://github.com/psf/black
+    rev: 25.9.0
+    hooks:
+      - id: black
+        language_version: python3
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.2
+    hooks:
+      - id: ruff
+        args: [--fix]
+        language_version: python3
+
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        # Exclude generated HTML artifact that contains high-entropy, non-secret strings
+        exclude: |
+          (?x)(
+            ^docs/drift_report\.html$
+          )
+
+  - repo: https://github.com/pypa/pip-audit
+    rev: v2.7.0
+    hooks:
+      - id: pip-audit
+        args: [
+          "--desc",
+          "--ignore-vuln", "GHSA-gm62-xv2j-4w53",  # urllib3 - fixed in requirements.txt (urllib3>=2.6.0)
+          "--ignore-vuln", "GHSA-2xpw-w6gg-jr37",  # urllib3 - fixed in requirements.txt (urllib3>=2.6.0)
+        ]

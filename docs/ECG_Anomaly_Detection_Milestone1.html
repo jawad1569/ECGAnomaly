@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ECG Anomaly Detection - Milestone 1</title>
+<style>
+  :root {
+    --bg: #eceef1;
+    --slide: #ffffff;
+    --ink: #1f2933;
+    --muted: #5b6573;
+    --line: #d5d9df;
+    --soft: #f5f6f8;
+    --accent: #b3261e;
+    --accent-soft: #fbeceb;
+    --good: #1e7a4c;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--bg); overflow: hidden; }
+  body {
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- Stage: fixed 1280x720, scaled to fit ---------- */
+  #stage {
+    position: absolute; left: 50%; top: 50%;
+    width: 1280px; height: 720px;
+    transform-origin: center center;
+  }
+  .slide {
+    position: absolute; inset: 0;
+    background: var(--slide);
+    padding: 64px 80px 72px;
+    display: none; flex-direction: column;
+    box-shadow: 0 6px 30px rgba(0,0,0,.12);
+  }
+  .slide.active { display: flex; }
+
+  /* ---------- Type ---------- */
+  .kicker { font-size: 18px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin-bottom: 10px; }
+  h1 { font-size: 64px; line-height: 1.05; font-weight: 700; letter-spacing: -.01em; }
+  h2 { font-size: 42px; line-height: 1.15; font-weight: 700; margin-bottom: 30px; }
+  h3 { font-size: 24px; font-weight: 700; margin-bottom: 12px; }
+  p, li { font-size: 24px; line-height: 1.45; }
+  .lead { font-size: 28px; line-height: 1.4; color: var(--muted); max-width: 980px; }
+  ul.points { list-style: none; display: grid; gap: 16px; }
+  ul.points li { padding-left: 30px; position: relative; }
+  ul.points li::before { content: ""; position: absolute; left: 4px; top: 14px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
+  code, .mono { font-family: Consolas, "Cascadia Mono", Menlo, monospace; font-size: .9em; background: var(--soft); border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px; }
+  strong { font-weight: 700; }
+  .accent { color: var(--accent); }
+
+  /* ---------- Footer on each slide ---------- */
+  .foot {
+    position: absolute; left: 80px; right: 80px; bottom: 26px;
+    display: flex; justify-content: space-between;
+    font-size: 15px; color: var(--muted);
+    border-top: 1px solid var(--line); padding-top: 12px;
+  }
+
+  /* ---------- Layout helpers ---------- */
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; flex: 1; }
+  .cols-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; }
+  .card { border: 1px solid var(--line); border-radius: 14px; padding: 26px 28px; background: #fff; }
+  .card.hot { border: 2px solid var(--accent); background: var(--accent-soft); }
+  .card p, .card li { font-size: 21px; }
+  .stat { font-size: 52px; font-weight: 700; color: var(--accent); line-height: 1; margin-bottom: 8px; }
+  .stat-label { font-size: 19px; color: var(--muted); line-height: 1.35; }
+
+  /* ---------- Title slide ---------- */
+  .title-slide { justify-content: center; }
+  .title-slide h1 { font-size: 80px; margin-bottom: 18px; }
+  .title-slide .lead { margin-bottom: 44px; }
+  .ecg { position: absolute; left: 0; right: 0; top: 70px; height: 110px; opacity: .9; }
+  .team { display: flex; gap: 56px; }
+  .team div { font-size: 22px; }
+
+  /* ---------- Pipeline diagram ---------- */
+  .pipe { display: flex; align-items: center; gap: 0; margin: 10px 0 34px; }
+  .node {
+    flex: 1; min-height: 104px; border: 1.5px solid #9aa3ad; border-radius: 12px;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    text-align: center; padding: 10px 8px; background: #fff;
+  }
+  .node b { font-size: 20px; }
+  .node small { font-size: 16px; color: var(--muted); margin-top: 4px; line-height: 1.3; }
+  .node.hot { border: 2.5px solid var(--accent); background: var(--accent-soft); }
+  .arrow { width: 34px; flex: 0 0 34px; height: 2px; background: #9aa3ad; position: relative; }
+  .arrow::after { content: ""; position: absolute; right: -1px; top: -6px; border-left: 10px solid #9aa3ad; border-top: 7px solid transparent; border-bottom: 7px solid transparent; }
+  .under { display: flex; gap: 34px; }
+  .under .card { flex: 1; }
+
+  /* ---------- Tables ---------- */
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 11px 14px; font-size: 20px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 16px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+  td:last-child, th:last-child { white-space: nowrap; }
+  .tag { font-family: Consolas, Menlo, monospace; font-size: 18px; color: var(--muted); font-weight: 400; margin-left: 14px; letter-spacing: 0; }
+
+  /* ---------- Milestone task grid ---------- */
+  .tasks { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 28px; }
+  .tasks .card { padding: 18px 24px; }
+  .tasks h3 { font-size: 22px; margin-bottom: 6px; }
+  .tasks h3 i { font-style: normal; color: var(--accent); margin-right: 10px; }
+  .tasks p { font-size: 19px; line-height: 1.4; color: var(--muted); }
+  .tasks .card.stretch { border-style: dashed; background: var(--soft); }
+
+  /* ---------- Endpoints ---------- */
+  .ep { display: grid; grid-template-columns: 210px 1fr; gap: 14px 22px; align-items: baseline; }
+  .ep .verb { font-family: Consolas, Menlo, monospace; font-size: 21px; font-weight: 700; }
+  .ep .verb em { font-style: normal; color: var(--accent); margin-right: 8px; font-size: 16px; }
+  .ep p { font-size: 22px; }
+
+  /* ---------- Stack grid ---------- */
+  .stack { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+  .stack .card { padding: 22px; }
+  .stack h3 { font-size: 15px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-bottom: 8px; font-weight: 600; }
+  .stack p { font-size: 22px; font-weight: 600; line-height: 1.3; }
+
+  /* ---------- Risks ---------- */
+  .risk td:first-child { font-weight: 600; width: 44%; }
+  .risk td:last-child { white-space: normal; color: var(--ink); }
+
+  /* ---------- Speaker notes ---------- */
+  .notes { display: none; }
+  #notes-panel {
+    position: fixed; left: 0; right: 0; bottom: 0; max-height: 34vh; overflow: auto;
+    background: #111827; color: #e5e7eb; font-size: 17px; line-height: 1.5;
+    padding: 14px 22px; display: none; z-index: 10;
+  }
+  #notes-panel.show { display: block; }
+
+  /* ---------- Chrome ---------- */
+  #progress { position: fixed; left: 0; bottom: 0; height: 4px; background: var(--accent); transition: width .2s; z-index: 5; }
+  #hint { position: fixed; right: 14px; top: 10px; font-size: 13px; color: #6b7280; z-index: 5; transition: opacity .6s; }
+  #hint.gone { opacity: 0; pointer-events: none; }
+
+  /* ---------- Print: one slide per page ---------- */
+  @media print {
+    @page { size: 1280px 720px; margin: 0; }
+    html, body { overflow: visible; background: #fff; height: auto; }
+    #stage { position: static; transform: none !important; width: auto; height: auto; }
+    .slide { display: flex !important; position: relative; width: 1280px; height: 720px; box-shadow: none; page-break-after: always; break-after: page; }
+    #progress, #hint, #notes-panel { display: none !important; }
+  }
+</style>
+</head>
+<body>
+
+
+<div id="stage">
+
+  <!-- 1. Title -->
+  <section class="slide title-slide">
+    <svg class="ecg" viewBox="0 0 1280 110" preserveAspectRatio="none" aria-hidden="true">
+      <defs>
+        <path id="beat" d="M0 60 L40 60 Q52 46 64 60 L84 60 L92 70 L104 8 L116 84 L126 60 L150 60 Q168 40 186 60 L213 60" fill="none" stroke="#b3261e" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+      </defs>
+      <use href="#beat" x="0"/><use href="#beat" x="213"/><use href="#beat" x="426"/>
+      <use href="#beat" x="639"/><use href="#beat" x="852"/><use href="#beat" x="1065"/>
+    </svg>
+    <div class="kicker">Milestone 1 &middot; Model &amp; API</div>
+    <h1>ECG Anomaly Detection</h1>
+    <p class="lead">A reproducible ECG classifier, tuned with AutoML, tracked in MLflow and served through a validated FastAPI service.</p>
+    <div class="team">
+      <div><strong>Muhammad Jawad Maqsood</strong></div>
+      <div><strong>Sudharth Kumar</strong></div>
+    </div>
+    <div class="foot"><span>MLOps Course Project &middot; BS Computer Science &middot; Fall 2026</span><span></span></div>
+    <div class="notes">Milestone 1 delivers the model and the API. Everything runs locally from a clean clone. The one addition to the original proposal is the AutoML integration.</div>
+  </section>
+
+  <!-- 2. What we built -->
+  <section class="slide">
+    <div class="kicker">What we built</div>
+    <h2>From raw ECGs to a served prediction</h2>
+    <div class="pipe">
+      <div class="node"><b>PTB-XL</b><small>21,388 ECGs, 12 leads</small></div>
+      <div class="arrow"></div>
+      <div class="node"><b>Validate + features</b><small>467 per ECG</small></div>
+      <div class="arrow"></div>
+      <div class="node hot"><b>FLAML AutoML</b><small>4 model families</small></div>
+      <div class="arrow"></div>
+      <div class="node"><b>MLflow</b><small>runs + registry</small></div>
+      <div class="arrow"></div>
+      <div class="node"><b>FastAPI</b><small>/predict /explain</small></div>
+    </div>
+    <div class="under">
+      <div class="card"><h3>Task</h3><p>Classify a 12-lead ECG into <strong>NORM, MI, STTC, CD or HYP</strong>; the API also reports normal vs abnormal.</p></div>
+      <div class="card hot"><h3>New: AutoML</h3><p>FLAML searches models and hyper-parameters for us, scored on macro-F1.</p></div>
+      <div class="card"><h3>Reproducible</h3><p><code>make setup</code>, <code>python manage.py train</code>, <code>make test</code>.</p></div>
+    </div>
+    <div class="foot"><span>ECG Anomaly Detection</span><span class="num"></span></div>
+    <div class="notes">Walk left to right. Highlight the AutoML box: it replaces hand-picking and hand-tuning three models.</div>
+  </section>
+
+  <!-- 3. Dataset -->
+  <section class="slide">
+    <div class="kicker">Dataset</div>
+    <h2>PTB-XL: real clinical ECGs with expert labels</h2>
+    <div class="cols-3" style="margin-bottom:34px">
+      <div class="card"><div class="stat">21,388</div><div class="stat-label">labelled recordings used (NORM 9,246 &middot; MI 4,187 &middot; STTC 3,345 &middot; CD 3,322 &middot; HYP 1,288)</div></div>
+      <div class="card"><div class="stat">12 leads</div><div class="stat-label">10 seconds each, 1,000 samples per lead at 100&nbsp;Hz</div></div>
+      <div class="card"><div class="stat">5 classes</div><div class="stat-label">cardiologist-labelled diagnostic superclasses</div></div>
+    </div>
+    <ul class="points">
+      <li>Label = the diagnostic superclass with the <strong>highest likelihood</strong> in the PTB-XL annotations.</li>
+      <li>Split = the official PTB-XL folds: <strong>folds 1&ndash;9 train</strong>, <strong>fold 10 held-out test</strong> (2,158 ECGs), so no patient leaks across the split.</li>
+    </ul>
+    <div class="foot"><span>Source: PTB-XL, PhysioNet (Wagner et al., 2020)</span><span class="num"></span></div>
+    <div class="notes">MI = myocardial infarction, STTC = ST/T change, CD = conduction disturbance, HYP = hypertrophy. Classes are unequal, so we score macro-F1 rather than accuracy alone.</div>
+  </section>
+
+  <!-- 4. Validation & features -->
+  <section class="slide">
+    <div class="kicker">Data preparation</div>
+    <h2>Validate every signal, then extract 467 features</h2>
+    <div class="cols">
+      <div>
+        <h3>Validation <span class="tag">validate_signal()</span></h3>
+        <ul class="points">
+          <li>Shape must be <strong>(time, 12)</strong>.</li>
+          <li>At least 100 samples.</li>
+          <li>No NaN or infinite values.</li>
+          <li>Amplitude within &plusmn;50&nbsp;mV.</li>
+        </ul>
+        <p style="margin-top:18px; font-size:21px; color:var(--muted)">Same function in training and in the API, which answers <code>400</code> on bad input.</p>
+      </div>
+      <div>
+        <h3>Features <span class="tag">features.py</span></h3>
+        <ul class="points">
+          <li><strong>Per lead</strong>: percentiles, skew, kurtosis, slope, zero-crossings, 5 frequency-band powers.</li>
+          <li><strong>Heartbeat</strong>: heart rate, RR variability, median-beat shape of every lead.</li>
+          <li><strong>Between leads</strong>: correlations with II and V1.</li>
+        </ul>
+        <div class="card hot" style="margin-top:18px"><p>Up from 9 basic statistics per lead (108 features).</p></div>
+      </div>
+    </div>
+    <div class="foot"><span>ECG Anomaly Detection</span><span class="num"></span></div>
+    <div class="notes">The first version used only 9 summary statistics per lead and hit about 52% accuracy: it could not see heartbeat shape or heart rate. The richer features are what moved the score most.</div>
+  </section>
+
+  <!-- 5. AutoML -->
+  <section class="slide">
+    <div class="kicker">AutoML integration</div>
+    <h2>FLAML picks the model and tunes it for us</h2>
+    <div class="cols">
+      <div>
+        <ul class="points">
+          <li><strong>Search space</strong>: LightGBM, XGBoost, ExtraTrees, RandomForest.</li>
+          <li><strong>Objective</strong>: macro-F1, 3-fold cross-validation on the training folds.</li>
+          <li><strong>Budget</strong>: time-boxed, set by <code>AUTOML_TIME_BUDGET</code>.</li>
+          <li>One <strong>child MLflow run per family</strong>, then the full search as the parent run.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Trial comparison <span class="tag">held-out fold 10</span></h3>
+        <table>
+          <tr><th>Estimator</th><th>Macro-F1</th><th>Accuracy</th></tr>
+          <tr><td><strong>lgbm</strong> (winner)</td><td><strong>0.627</strong></td><td>71.3%</td></tr>
+          <tr><td>xgboost</td><td>0.598</td><td>69.5%</td></tr>
+          <tr><td>extra_tree</td><td>0.547</td><td>66.4%</td></tr>
+          <tr><td>rf</td><td>0.444</td><td>61.6%</td></tr>
+        </table>
+      </div>
+    </div>
+    <div class="foot"><span>Short per-family budgets shown; the full search scored 0.633 (next slide)</span><span class="num"></span></div>
+    <div class="notes">The four child runs give the required 3+ MLflow runs and an honest comparison. The table uses a short per-family budget; the registered model came from a longer 240 second search.</div>
+  </section>
+
+  <!-- 6. Results -->
+  <section class="slide">
+    <div class="kicker">Results</div>
+    <h2>From about 52% to 72% accuracy</h2>
+    <div class="cols-3" style="margin-bottom:30px">
+      <div class="card"><div class="stat">72.4%</div><div class="stat-label">accuracy on 2,158 unseen ECGs (baseline: 52%)</div></div>
+      <div class="card"><div class="stat">0.633</div><div class="stat-label">macro-F1, 5 classes (baseline: 0.52)</div></div>
+      <div class="card hot"><div class="stat">0.854</div><div class="stat-label">F1 for normal vs abnormal</div></div>
+    </div>
+    <table>
+      <tr><th>Class</th><th>NORM</th><th>MI</th><th>STTC</th><th>CD</th><th>HYP</th></tr>
+      <tr><td>F1 per class</td><td>0.84</td><td>0.64</td><td>0.66</td><td>0.63</td><td>0.41</td></tr>
+    </table>
+    <p style="font-size:21px; color:var(--muted); margin-top:16px">HYP is weakest: only 1,288 examples. Class weighting or a deep model on raw signals is the next step.</p>
+    <div class="foot"><span>Test = PTB-XL fold 10, never used for training or tuning</span><span class="num"></span></div>
+    <div class="notes">Baseline: 108 basic features, 1,000 ECGs, three models, 200-ECG test set. Now: 467 features, 21k ECGs, AutoML, official 2,158-ECG test fold. Be upfront that HYP is the weak class.</div>
+  </section>
+
+  <!-- 7. MLflow & registry -->
+  <section class="slide">
+    <div class="kicker">Experiment tracking</div>
+    <h2>Every run is logged; a worse model never goes live</h2>
+    <div class="cols-3">
+      <div class="card"><h3>Logged per run</h3><p>Estimator, config, time budget, data sizes, accuracy, macro-F1, F1 abnormal.</p></div>
+      <div class="card"><h3>Registry</h3><p>Winner registered as <code>ecg_model_v1</code> with its class names; the API loads the latest version.</p></div>
+      <div class="card hot"><h3>Only if better</h3><p>A retrained model is registered only if its macro-F1 is at least the best registered. We saw this gate reject a weaker run.</p></div>
+    </div>
+    <div class="foot"><span>ECG Anomaly Detection</span><span class="num"></span></div>
+    <div class="notes">Show the MLflow UI: experiment ECG_AutoML_Phase1 with the parent run and four trial_* child runs.</div>
+  </section>
+
+  <!-- 8. API -->
+  <section class="slide">
+    <div class="kicker">Serving</div>
+    <h2>A FastAPI service with validated inputs</h2>
+    <div class="ep" style="margin-bottom:34px">
+      <div class="verb"><em>POST</em>/predict</div><p>12-lead signal in &rarr; class, confidence, per-class probabilities and an explanation out.</p>
+      <div class="verb"><em>POST</em>/explain</div><p>Per-lead importance by masking one lead at a time.</p>
+      <div class="verb"><em>GET</em>/health</div><p>Liveness check.</p>
+      <div class="verb"><em>GET</em>/docs</div><p>Auto-generated Swagger documentation.</p>
+    </div>
+    <p class="lead" style="font-size:23px">Pydantic and <code>validate_signal</code> reject wrong shape, too-short, non-finite or out-of-range input with a clear <code>400</code> before the model runs.</p>
+    <div class="foot"><span>ECG Anomaly Detection</span><span class="num"></span></div>
+    <div class="notes">Demo: send a valid signal, then a 6-lead signal to show the 400 error. If no model is registered, the API trains one on startup.</div>
+  </section>
+
+  <!-- 9. Milestone 1 checklist -->
+  <section class="slide">
+    <div class="kicker">Milestone 1 &middot; Delivered</div>
+    <h2>Model &amp; API <span class="tag">v1.0-milestone1</span></h2>
+    <div class="tasks">
+      <div class="card"><h3><i>&#10003;</i>Repository setup</h3><p>LICENSE, Makefile with <code>setup</code> and <code>data</code>, pinned <code>requirements.txt</code>.</p></div>
+      <div class="card"><h3><i>&#10003;</i>Data preparation</h3><p>Signal validation, 467 features, official stratified split.</p></div>
+      <div class="card hot"><h3><i>&#10003;</i>Training + AutoML</h3><p><code>train.py</code>: FLAML search, 4 child runs + parent in MLflow, gated registration.</p></div>
+      <div class="card"><h3><i>&#10003;</i>API</h3><p><code>/predict</code>, <code>/explain</code>, <code>/health</code> with input validation.</p></div>
+      <div class="card"><h3><i>&#10003;</i>Tests</h3><p>13 pytest tests pass: features, validation, model loading, API endpoints.</p></div>
+      <div class="card"><h3><i>&#10003;</i>Documentation</h3><p>README, CONTRIBUTION and AI_USAGE files.</p></div>
+    </div>
+    <div class="foot"><span>Feature branches, one peer approval per pull request to main</span><span class="num"></span></div>
+    <div class="notes">Every item on the Milestone 1 plan is done. The only change from the proposal is AutoML instead of three hand-tuned models.</div>
+  </section>
+
+  <!-- 10. Tech stack -->
+  <section class="slide">
+    <div class="kicker">Tech stack</div>
+    <h2>Only the tools each step needs</h2>
+    <div class="stack">
+      <div class="card"><h3>Language &amp; API</h3><p>Python 3.13<br>FastAPI, Pydantic</p></div>
+      <div class="card"><h3>Features</h3><p>NumPy, SciPy<br>wfdb, pandas</p></div>
+      <div class="card"><h3>AutoML</h3><p>FLAML<br>LightGBM, XGBoost</p></div>
+      <div class="card"><h3>Tracking</h3><p>MLflow<br>(local, SQLite)</p></div>
+      <div class="card"><h3>Testing</h3><p>pytest<br>ruff, black</p></div>
+      <div class="card"><h3>Tooling</h3><p>Makefile<br>pre-commit</p></div>
+    </div>
+    <div class="foot"><span>ECG Anomaly Detection</span><span class="num"></span></div>
+    <div class="notes">Docker, CI/CD and deployment are Milestone 2.</div>
+  </section>
+
+  <!-- 11. Next -->
+  <section class="slide">
+    <div class="kicker">Next &middot; Milestone 2</div>
+    <h2>Docker, CI/CD &amp; Deployment <span class="tag">v2.0-milestone2</span></h2>
+    <div class="tasks">
+      <div class="card"><h3><i>1</i>Containerise</h3><p>Dockerfile with the model, code and a healthcheck.</p></div>
+      <div class="card"><h3><i>2</i>CI pipeline</h3><p>ruff, pytest and Docker build on every push.</p></div>
+      <div class="card hot"><h3><i>3</i>Deploy</h3><p>Container on AWS EC2 behind a public URL.</p></div>
+      <div class="card"><h3><i>4</i>Monitoring</h3><p><code>/metrics</code> and structured request logs.</p></div>
+      <div class="card"><h3><i>5</i>Runbook</h3><p>Redeploy and rollback steps, rehearsed.</p></div>
+      <div class="card stretch"><h3><i>+</i>Model upgrades</h3><p>Class weighting for HYP, longer AutoML budget, retrain in CI.</p></div>
+    </div>
+    <div class="foot"><span>ECG Anomaly Detection</span><span class="num"></span></div>
+    <div class="notes">Milestone 2 turns the local API into a deployed, monitored service that can be updated and rolled back safely.</div>
+  </section>
+
+  <!-- 12. Close -->
+  <section class="slide title-slide">
+    <div class="kicker">Summary</div>
+    <h1 style="font-size:60px">Data &rarr; AutoML &rarr; MLflow &rarr; API</h1>
+    <p class="lead">72% accuracy on 5 ECG classes and 0.85 F1 for normal vs abnormal, reproducible from a clean clone and covered by 13 passing tests.</p>
+    <p style="font-size:34px; font-weight:700; color:var(--accent)">Thank you &middot; Questions?</p>
+    <div class="foot"><span>Muhammad Jawad Maqsood &middot; Sudharth Kumar</span><span class="num"></span></div>
+    <div class="notes">Likely questions: why AutoML (less manual tuning, fair comparison), why macro-F1 (unequal classes), why is HYP weak (few examples).</div>
+  </section>
+
+</div>
+
+</div>
+
+<div id="progress"></div>
+<div id="hint">&larr; &rarr; to move &middot; F fullscreen &middot; N notes</div>
+<div id="notes-panel"></div>
+
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const stage = document.getElementById('stage');
+  const progress = document.getElementById('progress');
+  const notesPanel = document.getElementById('notes-panel');
+  const hint = document.getElementById('hint');
+  let current = 0;
+
+  slides.forEach((s, i) => {
+    const n = s.querySelector('.num');
+    if (n) n.textContent = (i + 1) + ' / ' + slides.length;
+  });
+
+  function fit() {
+    let scale = Math.min(window.innerWidth / 1280, window.innerHeight / 720);
+    if (!(scale > 0)) scale = 1;  // window not laid out yet (e.g. opened in a background tab)
+    stage.style.transform = 'translate(-50%, -50%) scale(' + scale + ')';
+  }
+
+  function show(i) {
+    current = Math.max(0, Math.min(slides.length - 1, i));
+    slides.forEach((s, k) => s.classList.toggle('active', k === current));
+    progress.style.width = ((current + 1) / slides.length * 100) + '%';
+    const note = slides[current].querySelector('.notes');
+    notesPanel.textContent = note ? note.textContent : '';
+    if (location.hash !== '#' + (current + 1)) history.replaceState(null, '', '#' + (current + 1));
+  }
+
+  document.addEventListener('keydown', e => {
+    if (['ArrowRight', 'PageDown', ' ', 'Enter'].includes(e.key)) { e.preventDefault(); show(current + 1); }
+    else if (['ArrowLeft', 'PageUp', 'Backspace'].includes(e.key)) { e.preventDefault(); show(current - 1); }
+    else if (e.key === 'Home') show(0);
+    else if (e.key === 'End') show(slides.length - 1);
+    else if (e.key === 'f' || e.key === 'F') {
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
+      else document.exitFullscreen();
+    }
+    else if (e.key === 'n' || e.key === 'N') notesPanel.classList.toggle('show');
+  });
+
+  document.addEventListener('click', e => {
+    if (e.target.closest('#notes-panel')) return;
+    show(e.clientX > window.innerWidth / 3 ? current + 1 : current - 1);
+  });
+
+  setTimeout(() => hint.classList.add('gone'), 4000);
+
+  window.addEventListener('resize', fit);
+  document.addEventListener('visibilitychange', fit);
+  window.addEventListener('load', fit);
+  fit();
+  const start = parseInt(location.hash.slice(1), 10);
+  show(Number.isFinite(start) ? start - 1 : 0);
+</script>
+</body>
+</html>

@@ -1,0 +1,32 @@
+﻿# Core API
+fastapi
+uvicorn
+pydantic
+python-dotenv
+python-multipart
+sniffio
+
+# ML & feature engineering
+pandas
+numpy
+scikit-learn
+xgboost
+lightgbm        # used by FLAML as one of its estimators
+
+# AutoML (Phase 1 – model selection)
+flaml[automl]
+
+# Experiment tracking & model registry
+mlflow
+
+# Testing & code quality
+pytest
+pytest-cov
+ruff
+black
+pre-commit
+
+# Misc
+requests
+matplotlib
+urllib3>=2.6.0
