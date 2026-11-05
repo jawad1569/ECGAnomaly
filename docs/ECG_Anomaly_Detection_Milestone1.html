@@ -240,7 +240,7 @@
       </div>
     </div>
     <div class="foot"><span>ECG Anomaly Detection</span><span class="num"></span></div>
-    <div class="notes">The first version used only 9 summary statistics per lead and hit about 52% accuracy: it could not see heartbeat shape or heart rate. The richer features are what moved the score most.</div>
+    <div class="notes">Basic summary statistics cannot see heartbeat shape or heart rate, so we added spectral, heart-rate and median-beat features. These richer features are what moved the score most.</div>
   </section>
 
   <!-- 5. AutoML -->
@@ -274,19 +274,19 @@
   <!-- 6. Results -->
   <section class="slide">
     <div class="kicker">Results</div>
-    <h2>From about 52% to 72% accuracy</h2>
+    <h2>Our baseline: 72% accuracy, 0.85 F1 normal vs abnormal</h2>
     <div class="cols-3" style="margin-bottom:30px">
-      <div class="card"><div class="stat">72.4%</div><div class="stat-label">accuracy on 2,158 unseen ECGs (baseline: 52%)</div></div>
-      <div class="card"><div class="stat">0.633</div><div class="stat-label">macro-F1, 5 classes (baseline: 0.52)</div></div>
+      <div class="card"><div class="stat">72.4%</div><div class="stat-label">accuracy on 2,158 unseen ECGs</div></div>
+      <div class="card"><div class="stat">0.633</div><div class="stat-label">macro-F1 across the 5 classes</div></div>
       <div class="card hot"><div class="stat">0.854</div><div class="stat-label">F1 for normal vs abnormal</div></div>
     </div>
     <table>
       <tr><th>Class</th><th>NORM</th><th>MI</th><th>STTC</th><th>CD</th><th>HYP</th></tr>
       <tr><td>F1 per class</td><td>0.84</td><td>0.64</td><td>0.66</td><td>0.63</td><td>0.41</td></tr>
     </table>
-    <p style="font-size:21px; color:var(--muted); margin-top:16px">HYP is weakest: only 1,288 examples. Class weighting or a deep model on raw signals is the next step.</p>
+    <p style="font-size:21px; color:var(--muted); margin-top:16px">HYP is weakest: only 1,288 examples. This is the baseline Milestone 2 will try to beat.</p>
     <div class="foot"><span>Test = PTB-XL fold 10, never used for training or tuning</span><span class="num"></span></div>
-    <div class="notes">Baseline: 108 basic features, 1,000 ECGs, three models, 200-ECG test set. Now: 467 features, 21k ECGs, AutoML, official 2,158-ECG test fold. Be upfront that HYP is the weak class.</div>
+    <div class="notes">Frame 72% as the baseline: it proves the full pipeline works end to end, and Milestone 2 will test CI by shipping improved models against it. Be upfront that HYP is the weak class.</div>
   </section>
 
   <!-- 7. MLflow & registry -->
@@ -359,7 +359,7 @@
       <div class="card hot"><h3><i>3</i>Deploy</h3><p>Container on AWS EC2 behind a public URL.</p></div>
       <div class="card"><h3><i>4</i>Monitoring</h3><p><code>/metrics</code> and structured request logs.</p></div>
       <div class="card"><h3><i>5</i>Runbook</h3><p>Redeploy and rollback steps, rehearsed.</p></div>
-      <div class="card stretch"><h3><i>+</i>Model upgrades</h3><p>Class weighting for HYP, longer AutoML budget, retrain in CI.</p></div>
+      <div class="card stretch"><h3><i>+</i>Beat the baseline</h3><p>Class weighting for HYP, longer AutoML budget, retrain in CI; deploy only if better than the baseline.</p></div>
     </div>
     <div class="foot"><span>ECG Anomaly Detection</span><span class="num"></span></div>
     <div class="notes">Milestone 2 turns the local API into a deployed, monitored service that can be updated and rolled back safely.</div>
