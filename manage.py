@@ -1,9 +1,10 @@
 """
-Windows-friendly management script for HEARTSIGHT MLOps project.
+Windows-friendly management script for ECG Anomaly Detection MLOps project.
 Replaces Makefile commands for Windows users.
 
 Usage:
-    python manage.py train      # Run training pipeline
+    python manage.py data       # Validate PTB-XL and build features
+    python manage.py train      # AutoML training + MLflow + save model
     python manage.py dev         # Start FastAPI dev server
     python manage.py test        # Run tests
     python manage.py lint        # Run linters
@@ -52,27 +53,9 @@ def main():
             "desc": "Clean Cache Files",
         },
         "check": {"cmd": "pre-commit run --all-files", "desc": "Pre-commit Hooks"},
-        "metrics": {
-            "cmd": "python src/monitoring/prometheus_metrics.py",
-            "desc": "Start Prometheus Metrics Exporter (port 9000)",
-        },
-        "ingest": {
-            "cmd": "python src/ingest.py",
-            "desc": "Ingest PDFs and create vector database for RAG",
-        },
-        "rag": {
-            "cmd": "python src/ingest.py",
-            "desc": "Alias for ingest - build RAG vector database",
-        },
-        "ui": {
-            "cmd": "npm run dev",
-            "desc": "Start React frontend development server (port 3000)",
-            "cwd": "ui",
-        },
-        "ui-build": {
-            "cmd": "npm run build",
-            "desc": "Build React frontend for production",
-            "cwd": "ui",
+        "data": {
+            "cmd": "python src/pipeline/prepare_data.py",
+            "desc": "Data Preparation (validate + features)",
         },
     }
 

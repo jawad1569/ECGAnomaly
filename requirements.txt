@@ -1,4 +1,4 @@
-﻿# Core API
+# Core API
 fastapi
 uvicorn
 pydantic
@@ -9,11 +9,14 @@ sniffio
 # ML & feature engineering
 pandas
 numpy
+scipy
+joblib
+wfdb          # reads the PTB-XL WFDB records
 scikit-learn
 xgboost
 lightgbm        # used by FLAML as one of its estimators
 
-# AutoML (Phase 1 – model selection)
+# AutoML (model selection)
 flaml[automl]
 
 # Experiment tracking & model registry
@@ -28,5 +31,4 @@ pre-commit
 
 # Misc
 requests
-matplotlib
 urllib3>=2.6.0

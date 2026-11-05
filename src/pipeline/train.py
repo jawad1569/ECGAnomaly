@@ -1,13 +1,13 @@
-﻿"""ECG Anomaly Detection - Training Pipeline (Milestone 1, with FLAML AutoML).
+"""ECG Anomaly Detection - Training Pipeline (Milestone 1, with FLAML AutoML).
 
-1. Load PTB-XL (WFDB, 100 Hz), label = diagnostic superclass with highest likelihood.
-2. Validate signals and extract 467 features per ECG (src/utils/features.py).
-3. Official PTB-XL split: folds 1-9 train (CV), fold 10 held-out test.
+1. Load the prepared, validated feature matrix (src/pipeline/prepare_data.py).
+2. Official PTB-XL split: folds 1-9 train (CV), fold 10 held-out test.
+3. Evaluate on the held-out fold; save the model to models/ecg_model_<timestamp>_<est>.joblib.
 4. FLAML AutoML search over lgbm / xgboost / extra_tree / rf (metric: macro-F1).
 5. One child MLflow run per estimator family (3+ runs) + a parent run.
 6. Register the winner as `ecg_model_v1` only if macro-F1 >= best registered.
 """
-import ast
+import json
 import os
 import sys
 import tempfile
@@ -18,58 +18,21 @@ sys.path.insert(0, os.getcwd())
 import mlflow  # noqa: E402
 import mlflow.sklearn  # noqa: E402
 import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
+import joblib  # noqa: E402
 from flaml import AutoML  # noqa: E402
-from joblib import Parallel, delayed  # noqa: E402
 from sklearn.metrics import accuracy_score, classification_report, f1_score  # noqa: E402
 
-from src.utils.features import extract_features, validate_signal  # noqa: E402,F401
+from src.pipeline.prepare_data import load_prepared  # noqa: E402
+from src.utils.features import extract_features  # noqa: E402,F401
 
 warnings.filterwarnings("ignore")
 
-ROOT = os.path.join("dataset", "ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.3")
-CACHE = os.path.join("data", "features_v2.npz")
-CLASSES = sorted(["NORM", "MI", "STTC", "CD", "HYP"])
+MODEL_DIR = "models"
 MLFLOW_EXPERIMENT = "ECG_AutoML_Phase1"
 REGISTERED_MODEL_NAME = "ecg_model_v1"
 AUTOML_TIME_BUDGET = int(os.getenv("AUTOML_TIME_BUDGET", "240"))
 ESTIMATOR_LIST = ["lgbm", "xgboost", "extra_tree", "rf"]
 mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", "sqlite:///mlflow.db"))
-
-
-def load_and_process_data():
-    """Return X, y (index into CLASSES), strat_fold. Features cached in data/."""
-    if os.path.exists(CACHE):
-        z = np.load(CACHE)
-        return z["X"], z["y"], z["fold"]
-    import wfdb
-
-    db = pd.read_csv(os.path.join(ROOT, "ptbxl_database.csv"))
-    scp = pd.read_csv(os.path.join(ROOT, "scp_statements.csv"), index_col=0)
-    dm = scp[scp.diagnostic == 1]["diagnostic_class"].to_dict()
-
-    def label(s):
-        best, bl = None, -1
-        for k, v in ast.literal_eval(s).items():
-            if k in dm and v > bl:
-                best, bl = dm[k], v
-        return best
-
-    db["y"] = db["scp_codes"].apply(label)
-    db = db[db.y.isin(CLASSES)].reset_index(drop=True)
-    print("records:", len(db), db.y.value_counts().to_dict())
-
-    def one(fn):
-        sig, _ = wfdb.rdsamp(os.path.join(ROOT, fn))
-        validate_signal(sig)
-        return extract_features(sig)
-
-    t = time.time()
-    X = np.array(Parallel(n_jobs=-1, batch_size=64)(delayed(one)(f) for f in db.filename_lr))
-    print("features", X.shape, f"{time.time() - t:.0f}s")
-    y = db.y.map({c: i for i, c in enumerate(CLASSES)}).values
-    np.savez(CACHE, X=X, y=y, fold=db.strat_fold.values)
-    return X, y, db.strat_fold.values
 
 
 def _best_registered_f1macro(name):
@@ -94,7 +57,7 @@ def _fit(X, y, estimators, budget):
 
 
 def main():
-    X, y, fold = load_and_process_data()
+    X, y, fold, CLASSES = load_prepared()
     train, test = fold <= 9, fold == 10
     Xtr, ytr, Xte, yte = X[train], y[train], X[test], y[test]
     norm = CLASSES.index("NORM")
@@ -125,9 +88,20 @@ def main():
         mlflow.log_param("best_estimator", am.best_estimator)
         mlflow.log_metrics({"accuracy": acc, "f1_macro": f1m, "f1_abnormal": f1ab})
 
+        # save the trained model to disk with a clear, versioned name
+        model = am.model.estimator if hasattr(am.model, "estimator") else am.model
+        os.makedirs(MODEL_DIR, exist_ok=True)
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        model_path = os.path.join(MODEL_DIR, f"ecg_model_{stamp}_{am.best_estimator}.joblib")
+        joblib.dump({"model": model, "classes": CLASSES}, model_path)
+        with open(os.path.join(MODEL_DIR, f"ecg_model_{stamp}_metrics.json"), "w") as fh:
+            json.dump({"best_estimator": am.best_estimator, "accuracy": acc, "f1_macro": f1m,
+                       "f1_abnormal": f1ab, "mlflow_run_id": mlflow.active_run().info.run_id}, fh, indent=2)
+        mlflow.log_artifact(model_path)
+        print(f"Saved {model_path}")
+
         prev = _best_registered_f1macro(REGISTERED_MODEL_NAME)
         if f1m >= prev:
-            model = am.model.estimator if hasattr(am.model, "estimator") else am.model
             mlflow.sklearn.log_model(model, "model", serialization_format="cloudpickle",
                                      registered_model_name=REGISTERED_MODEL_NAME)
             with tempfile.TemporaryDirectory() as d:

@@ -1,0 +1,7 @@
+{
+  "best_estimator": "lgbm",
+  "accuracy": 0.7242817423540315,
+  "f1_macro": 0.6334319723774648,
+  "f1_abnormal": 0.8539823008849557,
+  "mlflow_run_id": "936d2b09473e4d8b8c98337d0b3ee360"
+}

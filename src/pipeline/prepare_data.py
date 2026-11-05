@@ -1,111 +1,110 @@
-﻿"""Prepare and reformat the PhysioNet PTB-XL dataset into standard CSV files.
+﻿"""Data preparation (step 1): PTB-XL -> validated feature matrix.
 
-Reads the official raw PTB-XL dataset (WFDB format) from the dataset/ folder:
-1. Maps SCP diagnostic statements into the 5 clinical superclasses (NORM, MI, STTC, CD, HYP).
-2. Performs a stratified extraction across all 5 diagnostic superclasses.
-3. Reads 12-lead, 100 Hz signal waveforms using wfdb.
-4. Outputs standard train_meta.csv and train_signal.csv into data/raw/.
+Separate from training. Reads the raw PTB-XL dataset (WFDB, 100 Hz) from dataset/,
+and writes data/processed/ecg_features.npz (X, y, fold) plus validation_report.json.
+
+Validation (per ECG and per dataset):
+  * signal shape is (time, 12) with at least 100 samples
+  * no missing (NaN / inf) values
+  * amplitude within +/-50 mV
+  * every record has a label in the 5 diagnostic superclasses
+Invalid ECGs are dropped and counted in the report.
+
+Split: official PTB-XL `strat_fold` (1-9 train, 10 held-out test), stored as `fold`.
+Run:  python src/pipeline/prepare_data.py     (or: make data)
 """
-
 import ast
+import json
 import os
-import numpy as np
-import pandas as pd
-import wfdb
+import sys
+import time
 
-DATASET_ROOT = os.path.join(
-    "dataset", "ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.3"
-)
-OUTPUT_DIR = os.path.join("data", "raw")
-DATABASE_CSV = os.path.join(DATASET_ROOT, "ptbxl_database.csv")
-SCP_CSV = os.path.join(DATASET_ROOT, "scp_statements.csv")
+sys.path.insert(0, os.getcwd())
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+from joblib import Parallel, delayed  # noqa: E402
 
-CLASSES = ["NORM", "MI", "STTC", "CD", "HYP"]
+from src.utils.features import extract_features, validate_signal  # noqa: E402
+
+ROOT = os.path.join("dataset", "ptb-xl-a-large-publicly-available-electrocardiography-dataset-1.0.3")
+OUT_DIR = os.path.join("data", "processed")
+OUT_NPZ = os.path.join(OUT_DIR, "ecg_features.npz")
+OUT_REPORT = os.path.join(OUT_DIR, "validation_report.json")
+CLASSES = sorted(["NORM", "MI", "STTC", "CD", "HYP"])
 
 
-def reformat_ptbxl(n_samples_per_class: int = 200, random_state: int = 42):
-    """Reformat a stratified sample of real PTB-XL clinical ECGs into CSVs."""
-    print("=" * 60)
-    print("Reformatting Real PhysioNet PTB-XL Dataset")
-    print("=" * 60)
+def _primary_label(scp_str, diag_map):
+    """Diagnostic superclass with the highest likelihood, or None."""
+    best, best_like = None, -1
+    for code, like in ast.literal_eval(scp_str).items():
+        if code in diag_map and like > best_like:
+            best, best_like = diag_map[code], like
+    return best
 
-    if not os.path.exists(DATABASE_CSV) or not os.path.exists(SCP_CSV):
-        raise FileNotFoundError(f"PTB-XL database files not found in {DATASET_ROOT}")
 
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+def _process(filename):
+    import wfdb
 
-    print("Loading PTB-XL database metadata...")
-    db = pd.read_csv(DATABASE_CSV)
-    agg_df = pd.read_csv(SCP_CSV, index_col=0)
-    diag_map = agg_df[agg_df.diagnostic == 1]["diagnostic_class"].to_dict()
+    try:
+        sig, _ = wfdb.rdsamp(os.path.join(ROOT, filename))
+        validate_signal(sig)
+        return extract_features(sig), None
+    except Exception as exc:  # invalid or unreadable record
+        return None, str(exc)[:80]
 
-    def get_primary_class(scp_str):
-        try:
-            scp = ast.literal_eval(scp_str)
-            for code in scp.keys():
-                if code in diag_map:
-                    return diag_map[code]
-        except Exception:
-            pass
-        return None
 
-    db["primary_class"] = db["scp_codes"].apply(get_primary_class)
-    db_valid = db[db["primary_class"].isin(CLASSES)].copy()
-    print(f"Total valid clinical recordings found: {len(db_valid)}")
+def prepare(force=False):
+    if os.path.exists(OUT_NPZ) and not force:
+        print(f"{OUT_NPZ} already exists (use force=True to rebuild)")
+        return OUT_NPZ
+    db = pd.read_csv(os.path.join(ROOT, "ptbxl_database.csv"))
+    scp = pd.read_csv(os.path.join(ROOT, "scp_statements.csv"), index_col=0)
+    diag_map = scp[scp.diagnostic == 1]["diagnostic_class"].to_dict()
 
-    # Stratified sampling
-    selected_records = []
-    rng = np.random.default_rng(random_state)
-    for cls in CLASSES:
-        cls_df = db_valid[db_valid["primary_class"] == cls]
-        n_take = min(n_samples_per_class, len(cls_df))
-        chosen_indices = rng.choice(cls_df.index, size=n_take, replace=False)
-        selected_records.append(cls_df.loc[chosen_indices])
+    n_total = len(db)
+    db["label"] = db["scp_codes"].apply(lambda s: _primary_label(s, diag_map))
+    n_unlabelled = int(db["label"].isna().sum())
+    db = db[db["label"].isin(CLASSES)].reset_index(drop=True)
+    print(f"{len(db)} labelled of {n_total} records ({n_unlabelled} without diagnostic label)")
 
-    sampled_df = pd.concat(selected_records).sample(frac=1.0, random_state=random_state).reset_index(drop=True)
-    print(f"Selected stratified cohort of {len(sampled_df)} patients:")
-    for cls, count in sampled_df["primary_class"].value_counts().items():
-        print(f"  {cls:6s}: {count} ECGs")
+    t = time.time()
+    results = Parallel(n_jobs=-1, batch_size=64)(delayed(_process)(f) for f in db.filename_lr)
+    ok = np.array([r[0] is not None for r in results])
+    errors = [r[1] for r in results if r[1]]
+    X = np.array([r[0] for r in results if r[0] is not None])
+    db = db[ok].reset_index(drop=True)
+    y = db["label"].map({c: i for i, c in enumerate(CLASSES)}).values
+    fold = db["strat_fold"].values
+    print(f"features {X.shape} in {time.time() - t:.0f}s; dropped {len(errors)} invalid ECGs")
 
-    # Build train_meta.csv
-    meta_rows = []
-    signal_chunks = []
+    # dataset-level checks
+    assert not np.isnan(X).any() and np.isfinite(X).all(), "NaN/inf in feature matrix"
+    report = {
+        "records_total": n_total,
+        "records_without_label": n_unlabelled,
+        "records_invalid_signal": len(errors),
+        "records_used": int(len(X)),
+        "n_features": int(X.shape[1]),
+        "class_counts": {c: int((y == i).sum()) for i, c in enumerate(CLASSES)},
+        "train_records_folds_1_9": int((fold <= 9).sum()),
+        "test_records_fold_10": int((fold == 10).sum()),
+        "invalid_reasons": sorted(set(errors)),
+    }
+    os.makedirs(OUT_DIR, exist_ok=True)
+    np.savez(OUT_NPZ, X=X, y=y, fold=fold, classes=np.array(CLASSES))
+    with open(OUT_REPORT, "w") as fh:
+        json.dump(report, fh, indent=2)
+    print(json.dumps(report, indent=2))
+    return OUT_NPZ
 
-    print("\nExtracting 12-lead signals via WFDB...")
-    for idx, row in sampled_df.iterrows():
-        ecg_id = int(row["ecg_id"])
-        cls = row["primary_class"]
-        filename_lr = row["filename_lr"]
 
-        # Read actual physical signal array (1000 timesteps x 12 leads)
-        record_path = os.path.join(DATASET_ROOT, filename_lr)
-        sig, fields = wfdb.rdsamp(record_path)
-
-        # Meta row
-        meta_dict = {"ecg_id": ecg_id}
-        for c in CLASSES:
-            meta_dict[c] = 1 if c == cls else 0
-        meta_rows.append(meta_dict)
-
-        # Signal dataframe
-        sig_df = pd.DataFrame(sig, columns=[f"channel-{i}" for i in range(12)])
-        sig_df.insert(0, "ecg_id", ecg_id)
-        signal_chunks.append(sig_df)
-
-        if (idx + 1) % 100 == 0 or (idx + 1) == len(sampled_df):
-            print(f"  Processed {idx + 1}/{len(sampled_df)} clinical ECG recordings...")
-
-    meta_df = pd.DataFrame(meta_rows)
-    meta_out = os.path.join(OUTPUT_DIR, "train_meta.csv")
-    meta_df.to_csv(meta_out, index=False)
-    print(f"\nWritten {meta_out}: {meta_df.shape}")
-
-    full_signal_df = pd.concat(signal_chunks, ignore_index=True)
-    signal_out = os.path.join(OUTPUT_DIR, "train_signal.csv")
-    full_signal_df.to_csv(signal_out, index=False)
-    print(f"Written {signal_out}: {full_signal_df.shape}")
-    print("\nDataset preparation from real PTB-XL complete!")
+def load_prepared():
+    """Return X, y, fold, classes from the prepared file (builds it if missing)."""
+    if not os.path.exists(OUT_NPZ):
+        prepare()
+    z = np.load(OUT_NPZ)
+    return z["X"], z["y"], z["fold"], list(z["classes"])
 
 
 if __name__ == "__main__":
-    reformat_ptbxl(n_samples_per_class=200)
+    prepare(force="--force" in sys.argv)
