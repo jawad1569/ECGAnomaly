@@ -36,17 +36,16 @@ async def startup_event():
     print("ECG Anomaly Detection API Starting...")
     print("=" * 60)
 
-    model_name   = os.getenv("MLFLOW_MODEL_NAME", "ecg_model_v1")
-    tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "sqlite:///mlflow.db")
+    # Training on startup needs the full dataset and several minutes, so it is opt-in
+    # (AUTO_TRAIN=true). Docker and CI load the committed models/*.joblib instead.
+    auto_train = os.getenv("AUTO_TRAIN", "false").lower() in ("1", "true", "yes")
 
-    from src.utils.model_loader import model_exists_in_registry
+    from src.utils.model_loader import get_model_version, reset_model_cache
 
     try:
-        model_exists = model_exists_in_registry(
-            model_name=model_name, tracking_uri=tracking_uri
-        )
+        model_exists = get_model(raise_on_error=False)[0] is not None
 
-        if not model_exists:
+        if not model_exists and auto_train:
             print("=" * 60)
             print("Model not found in registry.")
             print("Starting automatic training...")
@@ -72,11 +71,9 @@ async def startup_event():
 
             if training_success:
                 print("Training completed successfully!")
-                import src.utils.model_loader as model_loader_module
-                model_loader_module._model = None
-                model_loader_module._class_names = None
+                reset_model_cache()
     except Exception as check_error:
-        print(f"Could not check model registry: {check_error}")
+        print(f"Could not check for a model: {check_error}")
 
     # Load model into memory
     try:
@@ -91,14 +88,14 @@ async def startup_event():
             sys.stdout = old_stdout
 
         if model is not None:
-            print(f"Model ready. Classes: {class_names}")
+            print(f"Model ready ({get_model_version()}). Classes: {class_names}")
         else:
-            print("Model not loaded yet. Run: python manage.py train")
+            print("No model found. Run: python manage.py train (or set AUTO_TRAIN=true)")
     except Exception as e:
         print(f"Model will load on first request: {e}")
 
     print("=" * 60)
-    print("API Ready! Listening on http://127.0.0.1:8000")
+    print("API ready. Docs at /docs, health at /health")
     print("=" * 60)
 
 

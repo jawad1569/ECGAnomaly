@@ -1,0 +1,24 @@
+# Everything for local development: the API runtime plus data prep, training,
+# experiment tracking, tests and linting. Install with: pip install -r requirements-dev.txt
+-r requirements.txt
+
+# Data preparation and training
+pandas==3.1.1
+wfdb==5.2.0            # reads the PTB-XL WFDB records
+xgboost==2.1.4
+flaml[automl]==2.8.0   # AutoML model selection
+
+# Experiment tracking and model registry
+mlflow==3.18.0
+
+# Tests and code quality
+pytest==9.2.0
+pytest-cov==7.1.0
+httpx==0.28.1           # required by FastAPI's TestClient
+ruff==0.17.6
+black==26.10.1
+pre-commit==4.7.0
+
+# Scripts
+requests==2.34.2
+urllib3==2.8.0
