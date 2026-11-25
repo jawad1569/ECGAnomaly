@@ -5,7 +5,7 @@
 **Classify 12-lead ECGs into five diagnostic classes (NORM, MI, STTC, CD, HYP) with an AutoML-tuned, validated ensemble that is tracked in MLflow, served by FastAPI in Docker on AWS EC2, and only replaced when a retrained model is better.**
 
 Milestone 1: model and API. Milestone 2: Docker, CI/CD, EC2 deployment, monitoring and a web UI.  
-**Live:** http://16.178.96.171 (web UI) · [Project Focus](#project-focus) · [Demo video walkthrough](#demo-video-walkthrough)
+**Live:** http://16.178.96.171 (web UI) · [Project Focus](#project-focus) · [Getting started](#getting-started)
 
 ## Project Focus
 
@@ -40,15 +40,91 @@ with per-lead explainability as a second focus.**
 
 ```mermaid
 flowchart LR
-    A[PTB-XL dataset<br/>21,799 ECGs] --> B[prepare_data.py<br/>validate + 467 features + split]
-    B --> C[(data/processed<br/>ecg_features.npz)]
-    C --> D[train.py<br/>FLAML AutoML + MLflow]
-    D --> E[models/<br/>ecg_model_*.joblib]
-    D --> F[(MLflow registry<br/>ecg_model_v1)]
-    F --> G[FastAPI<br/>/predict /explain /health]
+    A[PTB-XL dataset<br/>21,799 ECGs] --> B[prepare_data.py<br/>validate + 467 features]
+    B --> C[train.py<br/>FLAML AutoML + ensemble<br/>MLflow tracking]
+    C -->|promotion gate:<br/>only if better| D[models/<br/>ecg_model_*.joblib]
+    D --> E[FastAPI + web UI<br/>/predict /explain /stats]
+    E --> F[Docker image]
+    F -->|GitHub Actions:<br/>lint, test, build| G[GHCR]
+    G -->|deploy.sh<br/>health check + rollback| H[AWS EC2<br/>http://16.178.96.171]
 ```
 
-## Quick start
+## Getting started
+
+The fastest way to see the whole system: run it in Docker, make a prediction, watch the monitoring, then try the same
+on the live deployment. You need Git and Docker; nothing else (no dataset, MLflow or training).
+
+**1. Run the service** (one command, about a minute to build):
+
+```bash
+git clone https://github.com/jawad1569/ECGAnomaly.git && cd ECGAnomaly
+docker build -t ecg-api . && docker run -d --name ecg-api -p 8000:8000 ecg-api
+```
+
+On Windows PowerShell 5.1, which has no `&&`, run the commands one by one.
+
+**2. Check that it is healthy.** The container has a built-in healthcheck on `/health`; after about 10 s:
+
+```bash
+docker ps                          # STATUS: Up ... (healthy)
+curl http://localhost:8000/health  # {"status":"healthy",...}
+```
+
+**3. Make a prediction**, whichever way you like:
+
+- **Web UI:** open http://localhost:8000, click *Patient B · abnormal* (or drop any CSV from
+  [`samples/test_ecgs/`](samples/test_ecgs)) and press *Analyze ECG*.
+- **API docs:** open http://localhost:8000/docs, choose `POST /predict` → *Try it out*, paste the contents of
+  [`samples/request_example.json`](samples/request_example.json) → *Execute*.
+- **cURL:**
+
+  ```bash
+  curl -X POST http://localhost:8000/predict -H "Content-Type: application/json" -d @samples/request_example.json
+  curl -X POST http://localhost:8000/explain -H "Content-Type: application/json" -d @samples/request_example.json
+  ```
+
+**4. Watch the monitoring.** Send a few requests, then look at the counters and the request log:
+
+```bash
+for i in 1 2 3 4 5; do curl -s -o /dev/null -X POST http://localhost:8000/predict -H "Content-Type: application/json" -d @samples/request_example.json; done
+curl http://localhost:8000/stats   # request_count, avg_latency_ms, per-endpoint numbers
+docker logs --tail 5 ecg-api       # one line per request
+```
+
+PowerShell: `1..5 | % { curl.exe -s -o NUL -X POST http://localhost:8000/predict -H "Content-Type: application/json" -d "@samples/request_example.json" }`
+
+**5. Use the live deployment.** The same service runs on AWS EC2 (`ap-southeast-2`):
+
+```bash
+curl http://16.178.96.171/health
+curl -X POST http://16.178.96.171/predict -H "Content-Type: application/json" -d @samples/request_example.json
+curl http://16.178.96.171/stats
+curl http://16.178.96.171/model    # served model: accuracy, macro-F1, training date
+```
+
+Or open http://16.178.96.171 in a browser. In PowerShell use `curl.exe` and `-d "@samples/request_example.json"`.
+
+**6. Make a change and watch CI.** Every push runs lint → test → Docker build on GitHub Actions. For example, bump the
+API version shown on `/docs` (`version="1.0.0"` in [`src/api/main.py`](src/api/main.py)) on a branch:
+
+```bash
+git switch -c chore/my-change
+git commit -am "chore: bump API version to 2.0.0"
+git push -u origin chore/my-change
+```
+
+A new run appears on the [Actions tab](https://github.com/jawad1569/ECGAnomaly/actions) within seconds. A failing
+test turns it red and skips the build; open a pull request to `main` once it is green. After merging, CI publishes
+`ghcr.io/jawad1569/ecganomaly:<short-sha>`, and `~/deploy.sh <short-sha>` on the server deploys it with a health check
+and automatic rollback ([RUNBOOK.md](RUNBOOK.md)).
+
+**7. Retrain the model** (needs the PTB-XL dataset, see [Development setup](#development-setup)). `make train`
+searches, validates and only promotes a model that beats the served one; the web UI's model card and `/model` then show
+the new accuracy and date.
+
+**Stop the local container:** `docker rm -f ecg-api`.
+
+## Development setup
 
 ```bash
 git clone https://github.com/jawad1569/ECGAnomaly.git
@@ -168,71 +244,6 @@ python scripts/predict_sample.py samples/sample_upload_TEST_PATIENT.csv http://1
 ```
 
 `samples/request_example.json` is a real 10 s, 12-lead ECG (1,000 × 12) from `samples/sample_upload_TEST_PATIENT.csv`; the expected answer is `"prediction": "NORM"`.
-
-## Demo video walkthrough
-
-Order and commands for the Milestone 2 video (4-6 minutes, **hard limit 7**; it must show a real run, not slides).
-Before recording: Docker Desktop running, `docker rm -f ecg-api` (clean start), browser tabs for the GitHub repo and
-its Actions tab, and http://16.178.96.171. The EC2 instance is always on, so there is nothing to wake up.
-
-| # | Part (time) | What to show and say |
-|---|---|---|
-| 1 | **Introduction** (~30 s) | Problem (ECG triage), the [Project Focus](#project-focus), overview (data → AutoML + ensemble → FastAPI → Docker → CI → EC2), stack: Python 3.11, scikit-learn/LightGBM, FLAML, MLflow, FastAPI, Docker, GitHub Actions, AWS EC2. |
-| 2 | **Clean start** (~1 min) | Show the repo on GitHub, then run the single documented command below. Open http://localhost:8000/docs and call `GET /health` and `POST /predict` (Try it out, paste `samples/request_example.json`). |
-| 3 | **Docker** (~30 s) | Open the [Dockerfile](Dockerfile) (slim Python 3.11, runtime deps only, model + code, non-root user, `HEALTHCHECK` on `/health`). Run `docker ps` and point at **(healthy)** in STATUS. |
-| 4 | **Monitoring** (~45 s) | Send a few predictions (commands below, or the web UI at http://localhost:8000), then open http://localhost:8000/stats: request count rising, average latency, per-endpoint table. `docker logs ecg-api` shows one line per request. |
-| 5 | **CI** (~1 min) | Actions tab: lint, test and build all green. Push the small change below and show the new run starting by itself. Optional: the failing-test version turning the run red, then the revert turning it green. |
-| 6 | **Deployment** (~1 min) | Open http://16.178.96.171 (web UI: load Patient B, Analyze, model card with accuracy and date). Run the cURL commands below for `/health`, `/predict` and `/stats` on the live service. |
-| 7 | **Focus and next steps** (~30-60 s) | Retraining with the promotion gate (rejected vs promoted run in MLflow), `/explain` lead importance, then the next steps from [Project Focus](#project-focus). |
-
-**2. Clean start (local).** The single documented command:
-
-```bash
-docker build -t ecg-api . && docker run -d --name ecg-api -p 8000:8000 ecg-api
-```
-
-Windows PowerShell 5.1 has no `&&`: run `docker build -t ecg-api .`, then `docker run -d --name ecg-api -p 8000:8000 ecg-api`.
-
-**3-4. Docker status and monitoring (local):**
-
-```bash
-docker ps                      # STATUS: Up ... (healthy)
-for i in 1 2 3 4 5; do curl -s -o /dev/null -X POST http://localhost:8000/predict -H "Content-Type: application/json" -d @samples/request_example.json; done
-curl http://localhost:8000/stats
-docker logs --tail 5 ecg-api
-```
-
-PowerShell loop: `1..5 | % { curl.exe -s -o NUL -X POST http://localhost:8000/predict -H "Content-Type: application/json" -d "@samples/request_example.json" }`
-
-**5. A small change that shows CI runs automatically.** Bump the API version shown at the top of `/docs`
-(`src/api/main.py`: `version="1.0.0"` → `version="2.0.0"`), then:
-
-```bash
-git switch -c chore/ci-demo
-git commit -am "chore: bump API version to 2.0.0"
-git push -u origin chore/ci-demo
-```
-
-The Actions tab shows a new run for `chore/ci-demo` within seconds: lint → test → build, all green. Opening a pull
-request shows the same checks on the PR. **Optional red run:** in `tests/test_api.py` change
-`assert response.json()["status"] == "healthy"` to `== "ok"`, commit and push. The test job fails (red) and the build
-job is skipped. Then `git revert --no-edit HEAD` and `git push`, and the next run is green again.
-
-**6. Deployment (live, from any terminal):**
-
-```bash
-curl http://16.178.96.171/health
-curl -X POST http://16.178.96.171/predict -H "Content-Type: application/json" -d @samples/request_example.json
-curl -X POST http://16.178.96.171/explain -H "Content-Type: application/json" -d @samples/request_example.json
-curl http://16.178.96.171/stats
-curl http://16.178.96.171/model     # accuracy 0.7285, trained_at 2026-11-25
-```
-
-In PowerShell use `curl.exe` and `-d "@samples/request_example.json"`.
-
-**Checklist before submitting** (from the course brief): the video shows a real run; `/stats` is shown live; this
-README has the live URL and cURL examples; CONTRIBUTION.md and AI_USAGE.md are updated; tag `v2.0-milestone2` is on
-a commit where CI is green.
 
 ## Dataset and task
 
