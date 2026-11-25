@@ -1,22 +1,32 @@
-"""Model loader utility for MLflow-registered models.
+"""Model loader for the ECG API.
 
-Loads the registered model (scikit-learn compatible) from the MLflow Model Registry
-and caches it in memory for fast API inference.
+Where the model comes from is set by MODEL_SOURCE:
+  - "auto" (default): MLflow registry first, then the newest models/ecg_model_*.joblib
+  - "registry": MLflow registry only
+  - "file": newest models/ecg_model_*.joblib only (used in Docker and CI, where there is
+    no mlflow.db)
+
+MLflow is imported only when the registry is used, so the API image does not need it.
+The model is cached in memory after the first load.
 """
 
+import glob
 import os
 import warnings
-import mlflow
-import mlflow.sklearn
+from typing import List, Optional
+
+import joblib
 import numpy as np
-from typing import Optional, List
 
 warnings.filterwarnings("ignore")
 
 _model: Optional[object] = None
 _class_names: Optional[List[str]] = None
+_model_version: str = "unknown"
 
 N_LEADS = 12
+DEFAULT_CLASSES = ["CD", "HYP", "MI", "NORM", "STTC"]
+MODEL_DIR = os.getenv("MODEL_DIR", "models")
 
 
 def extract_features_from_signal(signal_array: np.ndarray) -> np.ndarray:
@@ -27,6 +37,8 @@ def extract_features_from_signal(signal_array: np.ndarray) -> np.ndarray:
 
 
 def _setup_tracking(tracking_uri: Optional[str] = None):
+    import mlflow
+
     uri = tracking_uri or os.getenv("MLFLOW_TRACKING_URI", "sqlite:///mlflow.db")
     mlflow.set_tracking_uri(uri)
     return uri
@@ -38,6 +50,8 @@ def model_exists_in_registry(
 ) -> bool:
     """Check if model exists in the MLflow model registry."""
     try:
+        import mlflow
+
         _setup_tracking(tracking_uri)
         client = mlflow.tracking.MlflowClient()
         with warnings.catch_warnings():
@@ -53,7 +67,10 @@ def load_model_from_registry(
     tracking_uri: Optional[str] = None,
 ) -> tuple:
     """Load latest version of registered model and class names."""
-    global _model, _class_names
+    import mlflow
+    import mlflow.sklearn
+
+    global _model, _class_names, _model_version
     _setup_tracking(tracking_uri)
     client = mlflow.tracking.MlflowClient()
 
@@ -79,28 +96,82 @@ def load_model_from_registry(
         with open(cn_path, "r") as f:
             _class_names = [line.strip() for line in f if line.strip()]
     except Exception:
-        _class_names = ["CD", "HYP", "MI", "NORM", "STTC"]
+        _class_names = list(DEFAULT_CLASSES)
 
+    _model_version = f"{model_name}/v{latest_version.version}"
+    return _model, _class_names
+
+
+def latest_model_file(model_dir: Optional[str] = None) -> Optional[str]:
+    """Return the newest models/ecg_model_<timestamp>_<est>.joblib, or None.
+
+    File names start with a sortable timestamp, so the last one by name is the newest.
+    """
+    files = sorted(glob.glob(os.path.join(model_dir or MODEL_DIR, "ecg_model_*.joblib")))
+    return files[-1] if files else None
+
+
+def load_model_from_file(path: Optional[str] = None) -> tuple:
+    """Load a model saved by train.py ({"model": ..., "classes": [...]})."""
+    global _model, _class_names, _model_version
+    path = path or latest_model_file()
+    if path is None:
+        raise RuntimeError(f"No ecg_model_*.joblib file found in '{MODEL_DIR}/'.")
+
+    obj = joblib.load(path)
+    if isinstance(obj, dict) and "model" in obj:
+        _model = obj["model"]
+        _class_names = [str(c) for c in (obj.get("classes") or DEFAULT_CLASSES)]
+    else:  # a bare estimator
+        _model = obj
+        _class_names = list(DEFAULT_CLASSES)
+
+    _model_version = os.path.splitext(os.path.basename(path))[0]
     return _model, _class_names
 
 
 def get_model(raise_on_error: bool = True):
-    """Retrieve cached model or load from registry."""
+    """Return the cached model, loading it on first use (see MODEL_SOURCE above)."""
     global _model, _class_names
 
     if _model is None:
+        source = os.getenv("MODEL_SOURCE", "auto").lower()
         model_name = os.getenv("MLFLOW_MODEL_NAME", "ecg_model_v1")
         tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "sqlite:///mlflow.db")
-        try:
-            _model, _class_names = load_model_from_registry(
-                model_name=model_name, tracking_uri=tracking_uri
-            )
-        except Exception as e:
+        errors = []
+
+        if source in ("auto", "registry"):
+            try:
+                if model_exists_in_registry(model_name, tracking_uri):
+                    load_model_from_registry(model_name, tracking_uri)
+                else:
+                    errors.append(f"model '{model_name}' not in MLflow registry")
+            except Exception as e:
+                errors.append(f"registry: {e}")
+
+        if _model is None and source in ("auto", "file"):
+            try:
+                load_model_from_file()
+            except Exception as e:
+                errors.append(f"file: {e}")
+
+        if _model is None:
             if raise_on_error:
-                raise RuntimeError(f"Could not load model '{model_name}': {e}") from e
+                raise RuntimeError("Could not load model: " + "; ".join(errors))
             return None, None
 
     return _model, _class_names
+
+
+def get_model_version() -> str:
+    """Identifier of the loaded model (registry version or file name)."""
+    return _model_version
+
+
+def reset_model_cache():
+    """Forget the cached model so the next get_model() reloads it."""
+    global _model, _class_names, _model_version
+    _model, _class_names, _model_version = None, None, "unknown"
 
 
 def predict_ecg_signal(signal_data: np.ndarray) -> dict:
@@ -129,5 +200,5 @@ def predict_ecg_signal(signal_data: np.ndarray) -> dict:
         "confidence": confidence,
         "probabilities": probabilities,
         "class_index": idx,
-        "model_version": "v1",
+        "model_version": get_model_version(),
     }
