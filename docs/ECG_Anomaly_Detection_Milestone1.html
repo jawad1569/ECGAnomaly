@@ -214,33 +214,45 @@
     <div class="notes">MI = myocardial infarction, STTC = ST/T change, CD = conduction disturbance, HYP = hypertrophy. Classes are unequal, so we score macro-F1 rather than accuracy alone.</div>
   </section>
 
-  <!-- 4. Validation & features -->
+  <!-- 4. Cleaning & validation -->
   <section class="slide">
-    <div class="kicker">Data preparation</div>
-    <h2>Validate every signal, then extract 467 features</h2>
-    <div class="cols">
-      <div>
-        <h3>Validation <span class="tag">validate_signal()</span></h3>
-        <ul class="points">
-          <li>Shape must be <strong>(time, 12)</strong>.</li>
-          <li>At least 100 samples.</li>
-          <li>No NaN or infinite values.</li>
-          <li>Amplitude within &plusmn;50&nbsp;mV.</li>
-        </ul>
-        <p style="margin-top:18px; font-size:21px; color:var(--muted)">Same function in training and in the API, which answers <code>400</code> on bad input.</p>
-      </div>
-      <div>
-        <h3>Features <span class="tag">features.py</span></h3>
-        <ul class="points">
-          <li><strong>Per lead</strong>: percentiles, skew, kurtosis, slope, zero-crossings, 5 frequency-band powers.</li>
-          <li><strong>Heartbeat</strong>: heart rate, RR variability, median-beat shape of every lead.</li>
-          <li><strong>Between leads</strong>: correlations with II and V1.</li>
-        </ul>
-        <div class="card hot" style="margin-top:18px"><p>Up from 9 basic statistics per lead (108 features).</p></div>
-      </div>
+    <div class="kicker">Data cleaning &amp; validation</div>
+    <h2>Every record is checked before it reaches the model</h2>
+    <div class="pipe" style="margin-bottom:22px">
+      <div class="node"><b>21,799</b><small>PTB-XL records</small></div>
+      <div class="arrow"></div>
+      <div class="node"><b>&minus;411</b><small>no diagnostic label, dropped</small></div>
+      <div class="arrow"></div>
+      <div class="node hot"><b>Signal checks</b><small>0 invalid found</small></div>
+      <div class="arrow"></div>
+      <div class="node"><b>Band-pass filter</b><small>0.5&ndash;40&nbsp;Hz</small></div>
+      <div class="arrow"></div>
+      <div class="node"><b>21,388</b><small>clean ECGs used</small></div>
     </div>
+    <table>
+      <tr><th>Check</th><th>Rule</th><th>Why</th></tr>
+      <tr><td>Shape</td><td>(time, 12), at least 100 samples</td><td>all 12 leads present</td></tr>
+      <tr><td>Missing values</td><td>no NaN or infinite values</td><td>models cannot use them</td></tr>
+      <tr><td>Invalid range</td><td>amplitude within &plusmn;50&nbsp;mV</td><td>catches sensor faults</td></tr>
+      <tr><td>Labels</td><td>one of 5 diagnostic classes (highest likelihood)</td><td>no unlabelled training data</td></tr>
+    </table>
+    <p style="font-size:20px; color:var(--muted); margin-top:14px">Filtering removes baseline drift and high-frequency noise. The same <code>validate_signal()</code> guards the API (HTTP <code>400</code>), and a report is saved to <code>validation_report.json</code>.</p>
+    <div class="foot"><span>prepare_data.py &middot; features.py &middot; 4 pytest cases cover the rejections</span><span class="num"></span></div>
+    <div class="notes">Be precise: validation found no corrupt signals in PTB-XL, which is a well-curated dataset, so the only records dropped were the 411 without a diagnostic label. The checks still matter because the same function protects the API from bad uploads. The band-pass filter (0.5 to 40 Hz, zero-phase) removes baseline wander and noise before features are computed. We did not remove outliers or rebalance classes: class imbalance is handled by using macro-F1.</div>
+  </section>
+
+  <!-- 4b. Features -->
+  <section class="slide">
+    <div class="kicker">Feature extraction</div>
+    <h2>467 features per ECG, up from 108</h2>
+    <div class="cols-3">
+      <div class="card"><h3>Per lead (12 leads)</h3><p>Percentiles, skew, kurtosis, slope, zero-crossings and 5 frequency-band powers.</p></div>
+      <div class="card"><h3>Heartbeat</h3><p>Heart rate, RR variability and the median beat shape of every lead.</p></div>
+      <div class="card"><h3>Between leads</h3><p>Correlations of lead II and V1 with the other leads.</p></div>
+    </div>
+    <div class="card hot" style="margin-top:30px"><p>Basic statistics cannot see heartbeat shape or heart rate. These richer features are what moved the score most.</p></div>
     <div class="foot"><span>ECG Anomaly Detection</span><span class="num"></span></div>
-    <div class="notes">Basic summary statistics cannot see heartbeat shape or heart rate, so we added spectral, heart-rate and median-beat features. These richer features are what moved the score most.</div>
+    <div class="notes">The first version used only 9 summary statistics per lead. The new features capture rhythm, morphology and frequency content, which are what cardiologists look at.</div>
   </section>
 
   <!-- 5. AutoML -->
