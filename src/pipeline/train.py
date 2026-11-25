@@ -95,7 +95,9 @@ def main():
         joblib.dump({"model": model, "classes": CLASSES}, model_path)
         with open(os.path.join(MODEL_DIR, f"ecg_model_{stamp}_metrics.json"), "w") as fh:
             json.dump({"best_estimator": am.best_estimator, "accuracy": acc, "f1_macro": f1m,
-                       "f1_abnormal": f1ab, "mlflow_run_id": mlflow.active_run().info.run_id}, fh, indent=2)
+                       "f1_abnormal": f1ab, "n_test": int(len(Xte)),
+                       "trained_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                       "mlflow_run_id": mlflow.active_run().info.run_id}, fh, indent=2)
         mlflow.log_artifact(model_path)
         print(f"Saved {model_path}")
 

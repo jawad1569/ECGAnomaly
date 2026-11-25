@@ -5,7 +5,8 @@
 - GET /stats (alias /metrics) returns the counters as JSON.
 
 Counters live in the process, so they reset when the container restarts.
-Calls to /stats and /metrics are not counted, so looking at them doesn't change them.
+Calls to /stats and /metrics are not counted, so looking at them doesn't change them;
+neither are the web UI's static files (/static/...).
 """
 
 import logging
@@ -17,7 +18,8 @@ from fastapi import APIRouter, Request
 
 from src.utils.model_loader import get_model_version
 
-NOT_COUNTED = {"/stats", "/metrics"}
+NOT_COUNTED = {"/stats", "/metrics", "/favicon.ico"}
+NOT_COUNTED_PREFIXES = ("/static/",)  # web UI assets
 
 logger = logging.getLogger("ecg_api")
 if not logger.handlers:
@@ -92,7 +94,7 @@ async def track_requests(request: Request, call_next):
         return response
     finally:
         path = request.url.path
-        if path not in NOT_COUNTED:
+        if path not in NOT_COUNTED and not path.startswith(NOT_COUNTED_PREFIXES):
             latency_ms = (time.perf_counter() - start) * 1000
             stats.record(request.method, path, status, latency_ms)
             logger.info(

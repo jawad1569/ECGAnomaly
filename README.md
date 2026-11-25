@@ -27,7 +27,7 @@ make setup     # install dependencies (requirements-dev.txt; the API alone needs
 # download PTB-XL 1.0.3 (PhysioNet) and unzip it into dataset/
 make data      # step 1: validate + build features
 make train     # step 2: AutoML + MLflow + save model
-make test      # pytest, 20 tests (uses the committed model in models/)
+make test      # pytest, 25 tests (uses the committed model in models/)
 make dev       # API at http://127.0.0.1:8000/docs (run make train first)
 mlflow ui --backend-store-uri sqlite:///mlflow.db   # inspect runs
 ```
@@ -50,7 +50,7 @@ The image serves the committed model in `models/` (no dataset, MLflow or trainin
 docker build -t ecg-api . && docker run -d --name ecg-api -p 8000:8000 ecg-api
 ```
 
-Then open http://localhost:8000/docs. `docker ps` shows `(healthy)` once the built-in healthcheck on `/health` passes (about 10 s). The same with make: `make docker-build docker-run`, stop with `make docker-stop` (or `python manage.py docker-build` / `docker-run` / `docker-stop`).
+Then open **http://localhost:8000** for the web UI (API docs at `/docs`). `docker ps` shows `(healthy)` once the built-in healthcheck on `/health` passes (about 10 s). The same with make: `make docker-build docker-run`, stop with `make docker-stop` (or `python manage.py docker-build` / `docker-run` / `docker-stop`).
 
 ```bash
 curl http://localhost:8000/health
@@ -58,6 +58,34 @@ python scripts/predict_sample.py samples/sample_upload_TEST_PATIENT.csv   # /pre
 ```
 
 The [Dockerfile](Dockerfile) uses `python:3.11-slim`, installs only the API runtime (`requirements.txt`), copies `src/` and `models/`, runs as a non-root user on port 8000 and sets `MODEL_SOURCE=file`, `AUTO_TRAIN=false`.
+
+## Web UI
+
+Open the service root (**http://16.178.96.171** live, http://localhost:8000 locally). The page is served by the API itself
+([`src/api/static/`](src/api/static)): plain HTML, CSS and JavaScript, no build step and no extra container.
+
+- **Model card:** held-out accuracy, macro-F1, F1 normal vs abnormal and the date the served model was last trained,
+  from `GET /model` (read from the `*_metrics.json` that `train.py` saves next to each model).
+- **Input: one ECG per file.** Drop a CSV (`channel-0 … channel-11` or `I … V6` columns, one row per sample) or pick
+  Patient A (normal) / Patient B (abnormal). Files with several `ecg_id`s, more than 6,000 rows or several dropped files
+  are rejected. The 12 leads are drawn on ECG paper (25 mm/s); click a lead to enlarge it.
+- **Analyze:** sends the signal to `/predict` and `/explain`, then shows the diagnosis, class probabilities, per-lead
+  importance (the three most important leads are marked on the plot) and the explanation. If the CSV has a `label`
+  column, the page says whether the prediction matches it.
+- **Monitoring:** a live panel polls `/stats` every 5 s (request count, average latency, errors, per-endpoint table).
+
+The UI's static files are not counted in `/stats`. The previous JSON root moved to `GET /info`.
+
+### Test ECGs
+
+[`samples/test_ecgs/`](samples/test_ecgs) holds 10 real ECGs (2 per class) from PTB-XL's **held-out test fold**, so the
+model never saw them in training. Each file is a single 10 s recording with its cardiologist `label`; drop any of them
+on the UI. [`index.csv`](samples/test_ecgs/index.csv) lists the model's prediction for each: 4 of 10 are correct on this
+random draw (the model is 72.4% accurate on the full fold; HYP is its weakest class). Regenerate or draw more with:
+
+```bash
+python scripts/make_test_samples.py --per-class 2 --seed 42   # needs the PTB-XL dataset in dataset/
+```
 
 ## Monitoring
 
@@ -87,7 +115,7 @@ curl http://localhost:8000/stats
 
 The container runs on one **AWS EC2** `t3.micro` (Ubuntu 24.04, Docker) in `ap-southeast-2` on port 80, behind an Elastic IP.
 
-**Live endpoint:** http://16.178.96.171 · docs: http://16.178.96.171/docs · stats: http://16.178.96.171/stats (AWS `ap-southeast-2`, Sydney; deployed 2026-11-25)
+**Live endpoint:** web UI http://16.178.96.171 · docs: http://16.178.96.171/docs · stats: http://16.178.96.171/stats (AWS `ap-southeast-2`, Sydney; deployed 2026-11-25)
 
 Steps (details in [DEPLOYMENT.md](DEPLOYMENT.md)):
 
@@ -122,7 +150,7 @@ python scripts/predict_sample.py samples/sample_upload_TEST_PATIENT.csv http://1
 
 1. **Data preparation** ([`src/pipeline/prepare_data.py`](src/pipeline/prepare_data.py)), separate from training. Validation per ECG (`validate_signal` in [`src/utils/features.py`](src/utils/features.py)): shape `(time, 12)`, at least 100 samples, **no missing/NaN/inf values**, **amplitude within +/-50 mV**; records without a diagnostic label are dropped. A summary is written to `data/processed/validation_report.json` (this run: 411 unlabelled records dropped, 0 invalid signals, 21,388 used). Then 467 features per ECG: per-lead statistics, spectral band powers, heart rate and variability, median-beat shape, lead correlations.
 2. **Training** ([`src/pipeline/train.py`](src/pipeline/train.py)) loads the prepared data, runs a FLAML AutoML search (LightGBM, XGBoost, ExtraTrees, RandomForest; 3-fold CV; macro-F1), evaluates the best model on the held-out fold, and **saves it to `models/ecg_model_<timestamp>_<estimator>.joblib`** (with a `*_metrics.json` next to it). It also registers it in the MLflow registry as `ecg_model_v1` if macro-F1 is at least the best registered.
-3. **API** ([`src/api`](src/api)): `POST /predict`, `POST /explain` (per-lead importance by masking), `GET /health`, `GET /stats` (request count and latency), Swagger at `/docs`. Inputs are validated with Pydantic and `validate_signal` (HTTP 400 on bad input).
+3. **API** ([`src/api`](src/api)): `POST /predict`, `POST /explain` (per-lead importance by masking), `GET /health`, `GET /stats` (request count and latency), `GET /model` (held-out metrics and training date), Swagger at `/docs`, and a web UI at `/` (see below). Inputs are validated with Pydantic and `validate_signal` (HTTP 400 on bad input).
 
 ## MLflow experiments
 
@@ -150,14 +178,15 @@ src/pipeline/train.py          AutoML training, evaluation, model saving, MLflow
 src/utils/features.py          features + validate_signal
 src/utils/model_loader.py      loads the registered model for the API
 src/api/                       FastAPI app (/predict, /explain, /health, /stats)
+src/api/static/                web UI (HTML/CSS/JS, served at /) + two sample ECGs
 scripts/predict_sample.py      send a sample ECG to the running API
-samples/                       two example ECG CSVs (1,000 x 12)
+samples/                       example ECG CSVs (1,000 x 12); test_ecgs/ = labelled held-out test ECGs
 manage.py, Makefile            task runners (data, train, dev, test, lint, docker-*)
 Dockerfile, .dockerignore      API container image
 deploy/                        EC2 create/destroy, server setup, deploy + rollback scripts
 DEPLOYMENT.md, RUNBOOK.md      deployment steps; redeploy and rollback procedures
 models/                        saved model artifacts (ecg_model_<timestamp>_<est>.joblib)
-tests/                         20 pytest tests
+tests/                         25 pytest tests
 ruff.toml                      lint rules (ruff check .)
 .github/workflows/ci.yml       CI: lint, test, Docker build + push to GHCR
 docs/                          presentations

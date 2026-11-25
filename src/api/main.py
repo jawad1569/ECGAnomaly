@@ -16,7 +16,11 @@ logging.getLogger("mlflow").setLevel(logging.CRITICAL)
 logging.getLogger("urllib3").setLevel(logging.CRITICAL)
 logging.getLogger("requests").setLevel(logging.CRITICAL)
 
+from pathlib import Path
+
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from src.api import monitoring
 from src.api.routers import health, predict
@@ -34,6 +38,10 @@ app.middleware("http")(monitoring.track_requests)
 app.include_router(health.router)
 app.include_router(predict.router)
 app.include_router(monitoring.router)
+
+# Web UI: a static page (HTML/CSS/JS, no build step) served by the API itself at "/"
+STATIC_DIR = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.on_event("startup")
@@ -106,6 +114,21 @@ async def startup_event():
     print("=" * 60)
 
 
-@app.get("/", tags=["Root"])
-def read_root():
-    return {"message": "ECG Anomaly Detection API", "tracking_uri": mlflow_uri}
+@app.get("/", include_in_schema=False)
+def web_ui():
+    """Web UI: upload or pick a sample ECG, view the leads, analyze, see live /stats."""
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/model", tags=["Model"])
+def model_info():
+    """Model being served: held-out accuracy / macro-F1 and when it was trained."""
+    from src.utils.model_loader import get_model_info
+
+    get_model(raise_on_error=False)  # make sure the model (and its version) is loaded
+    return get_model_info()
+
+
+@app.get("/info", tags=["Root"])
+def read_info():
+    return {"message": "ECG Anomaly Detection API", "ui": "/", "docs": "/docs", "tracking_uri": mlflow_uri}
