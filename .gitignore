@@ -72,3 +72,5 @@ mlflow.db
 # EC2 instance details written by deploy/aws_create_ec2.ps1
 .ec2-instance.json
 *.pem
+models/rejected/
+models/archive/

@@ -191,7 +191,8 @@ def get_model_info() -> dict:
         model_file = latest_model_file()
 
     info = {"model_version": _model_version, "model_file": None, "trained_at": None,
-            "estimator": None, "accuracy": None, "f1_macro": None, "f1_abnormal": None,
+            "estimator": None, "estimator_label": None, "members": None,
+            "accuracy": None, "f1_macro": None, "f1_abnormal": None,
             "test_set": "PTB-XL fold 10 (held out, never used for training)", "n_test": None}
     if not model_file:
         return info
@@ -201,7 +202,7 @@ def get_model_info() -> dict:
     if os.path.exists(_metrics_path(model_file)):
         with open(_metrics_path(model_file), encoding="utf-8") as fh:
             metrics = json.load(fh)
-    for key in ("estimator", "accuracy", "f1_macro", "f1_abnormal", "n_test"):
+    for key in ("estimator", "estimator_label", "members", "accuracy", "f1_macro", "f1_abnormal", "n_test"):
         info[key] = metrics.get(key, metrics.get("best_estimator") if key == "estimator" else None)
 
     trained_at = metrics.get("trained_at")
