@@ -1,10 +1,12 @@
 """FastAPI application entry point for the ECG Anomaly Detection API (Milestone 1)."""
 
 # ruff: noqa: E402
-from dotenv import load_dotenv
+import logging
 import os
 import warnings
-import logging
+
+from dotenv import load_dotenv
+
 from src.utils.model_loader import get_model
 
 load_dotenv()

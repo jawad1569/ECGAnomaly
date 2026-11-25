@@ -1,0 +1,11 @@
+# Lint settings used by `make lint` and CI (ruff check .)
+target-version = "py311"
+line-length = 110
+extend-exclude = [".venv", "dataset", "data", "mlruns", "docs"]
+
+[lint]
+# pycodestyle errors/warnings, pyflakes, import sorting
+select = ["E", "W", "F", "I"]
+
+[lint.isort]
+known-first-party = ["src"]
