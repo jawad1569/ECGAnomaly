@@ -29,6 +29,13 @@ def test_stats_itself_is_not_counted():
     assert client.get("/stats").json()["request_count"] == 0
 
 
+def test_ui_assets_are_not_counted():
+    stats.reset()
+    client.get("/static/app.js")
+    client.get("/static/styles.css")
+    assert client.get("/stats").json()["request_count"] == 0
+
+
 def test_stats_counts_client_errors():
     stats.reset()
     bad = np.random.randn(100, 6).tolist()  # 6 leads instead of 12

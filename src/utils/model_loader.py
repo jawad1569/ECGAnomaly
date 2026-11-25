@@ -168,6 +168,53 @@ def get_model_version() -> str:
     return _model_version
 
 
+def _metrics_path(model_file: str) -> str:
+    """models/ecg_model_<date>_<time>_<est>.joblib -> models/ecg_model_<date>_<time>_metrics.json"""
+    stem = os.path.basename(model_file).rsplit(".", 1)[0]
+    stamp = "_".join(stem.split("_")[2:4])
+    return os.path.join(os.path.dirname(model_file), f"ecg_model_{stamp}_metrics.json")
+
+
+def get_model_info() -> dict:
+    """Held-out metrics and training date of the model being served.
+
+    Read from the *_metrics.json that train.py writes next to each model file. For a
+    registry model the newest model file's metrics are used (train.py writes both).
+    """
+    import json
+    from datetime import datetime
+
+    model_file = None
+    if _model_version.startswith("ecg_model_"):
+        model_file = os.path.join(MODEL_DIR, _model_version + ".joblib")
+    if not model_file or not os.path.exists(model_file):
+        model_file = latest_model_file()
+
+    info = {"model_version": _model_version, "model_file": None, "trained_at": None,
+            "estimator": None, "accuracy": None, "f1_macro": None, "f1_abnormal": None,
+            "test_set": "PTB-XL fold 10 (held out, never used for training)", "n_test": None}
+    if not model_file:
+        return info
+    info["model_file"] = os.path.basename(model_file)
+
+    metrics = {}
+    if os.path.exists(_metrics_path(model_file)):
+        with open(_metrics_path(model_file), encoding="utf-8") as fh:
+            metrics = json.load(fh)
+    for key in ("estimator", "accuracy", "f1_macro", "f1_abnormal", "n_test"):
+        info[key] = metrics.get(key, metrics.get("best_estimator") if key == "estimator" else None)
+
+    trained_at = metrics.get("trained_at")
+    if not trained_at:  # older metrics files: take the timestamp from the file name
+        try:
+            stamp = "_".join(os.path.basename(model_file).split("_")[2:4])
+            trained_at = datetime.strptime(stamp, "%Y%m%d_%H%M%S").isoformat()
+        except ValueError:
+            trained_at = datetime.fromtimestamp(os.path.getmtime(model_file)).isoformat(timespec="seconds")
+    info["trained_at"] = trained_at
+    return info
+
+
 def reset_model_cache():
     """Forget the cached model so the next get_model() reloads it."""
     global _model, _class_names, _model_version
