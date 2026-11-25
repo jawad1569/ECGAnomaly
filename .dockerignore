@@ -1,0 +1,29 @@
+# Only src/, models/ and requirements.txt go into the image.
+.git
+.github
+.venv
+venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.ruff_cache
+.env
+*.env
+
+# data, experiment tracking and training artifacts (large, not needed to serve)
+dataset
+data
+mlruns
+mlflow.db
+
+# not needed at runtime
+docs
+tests
+samples
+scripts
+*.md
+!README.md
+Makefile
+manage.py
+requirements-dev.txt
+.pre-commit-config.yaml
