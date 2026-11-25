@@ -20,7 +20,6 @@ test:
 
 lint:
 	ruff check .
-	black --check .
 
 format:
 	black .

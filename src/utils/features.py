@@ -1,7 +1,7 @@
 """Rich ECG feature extraction shared by training and the API (v2)."""
 
 import numpy as np
-from scipy.signal import find_peaks, welch, butter, filtfilt
+from scipy.signal import butter, filtfilt, find_peaks, welch
 
 N_LEADS = 12
 FS = 100

@@ -15,10 +15,9 @@ import time
 import warnings
 
 sys.path.insert(0, os.getcwd())
+import joblib  # noqa: E402
 import mlflow  # noqa: E402
 import mlflow.sklearn  # noqa: E402
-import numpy as np  # noqa: E402
-import joblib  # noqa: E402
 from flaml import AutoML  # noqa: E402
 from sklearn.metrics import accuracy_score, classification_report, f1_score  # noqa: E402
 

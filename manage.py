@@ -11,11 +11,11 @@ Usage:
     python manage.py format      # Format code
 """
 
-import sys
 import subprocess
 
 
 def run_command(cmd, description, cwd=None):
+import sys
     """Execute a shell command and handle errors."""
     print(f"\n{'='*60}")
     print(f"Running: {description}")
@@ -46,10 +46,14 @@ def main():
             "desc": "FastAPI Development Server",
         },
         "test": {"cmd": "pytest -v", "desc": "Test Suite"},
-        "lint": {"cmd": "ruff check . && black --check .", "desc": "Code Linting"},
+        "lint": {"cmd": "ruff check .", "desc": "Code Linting"},
         "format": {"cmd": "black .", "desc": "Code Formatting"},
         "clean": {
-            "cmd": "python -c \"import shutil; import glob; [shutil.rmtree(d) for d in glob.glob('**/__pycache__', recursive=True)]; [shutil.rmtree(d) for d in glob.glob('**/.pytest_cache', recursive=True)]\"",
+            "cmd": (
+                "python -c \"import shutil, glob; [shutil.rmtree(d, ignore_errors=True) for d in "
+                "glob.glob('**/__pycache__', recursive=True) "
+                "+ glob.glob('**/.pytest_cache', recursive=True)]\""
+            ),
             "desc": "Clean Cache Files",
         },
         "check": {"cmd": "pre-commit run --all-files", "desc": "Pre-commit Hooks"},

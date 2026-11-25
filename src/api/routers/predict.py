@@ -1,9 +1,11 @@
+from typing import List, Optional
+
+import numpy as np
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-import numpy as np
-from typing import List, Optional
-from src.utils.model_loader import predict_ecg_signal
+
 from src.utils.features import validate_signal
+from src.utils.model_loader import predict_ecg_signal
 
 router = APIRouter()
 
