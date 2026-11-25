@@ -18,8 +18,8 @@ This file lists what it was used for and what we did ourselves.
 - **Milestone 1:** the extended 467-feature set and FLAML AutoML training code, `validate_signal`, tests, and
   documentation drafts.
 - **Milestone 2:** drafting the Dockerfile, the GitHub Actions workflow, the `/stats` monitoring middleware, the
-  model-file fallback in the loader, the EC2 deploy and rollback scripts, and drafts of README, DEPLOYMENT.md and
-  RUNBOOK.md.
+  model-file fallback in the loader, the EC2 deploy and rollback scripts, the web UI (`src/api/static/`), the `/model` endpoint, the test-sample export script, and drafts
+  of README, DEPLOYMENT.md and RUNBOOK.md.
 - Debugging environment issues (Git ownership after an OS reinstall, AWS Region restrictions) and lint fixes.
 
 ## Review
