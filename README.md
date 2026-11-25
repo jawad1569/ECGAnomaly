@@ -27,7 +27,7 @@ make setup     # install dependencies (requirements-dev.txt; the API alone needs
 # download PTB-XL 1.0.3 (PhysioNet) and unzip it into dataset/
 make data      # step 1: validate + build features
 make train     # step 2: AutoML + MLflow + save model
-make test      # pytest, 25 tests (uses the committed model in models/)
+make test      # pytest, 27 tests (uses the committed model in models/)
 make dev       # API at http://127.0.0.1:8000/docs (run make train first)
 mlflow ui --backend-store-uri sqlite:///mlflow.db   # inspect runs
 ```
@@ -80,8 +80,8 @@ The UI's static files are not counted in `/stats`. The previous JSON root moved 
 
 [`samples/test_ecgs/`](samples/test_ecgs) holds 10 real ECGs (2 per class) from PTB-XL's **held-out test fold**, so the
 model never saw them in training. Each file is a single 10 s recording with its cardiologist `label`; drop any of them
-on the UI. [`index.csv`](samples/test_ecgs/index.csv) lists the model's prediction for each: 4 of 10 are correct on this
-random draw (the model is 72.4% accurate on the full fold; HYP is its weakest class). Regenerate or draw more with:
+on the UI. [`index.csv`](samples/test_ecgs/index.csv) lists the model's prediction for each: 5 of 10 are correct on this
+random draw (the model is 72.9% accurate on the full fold; HYP is its weakest class). Regenerate or draw more with:
 
 ```bash
 python scripts/make_test_samples.py --per-class 2 --seed 42   # needs the PTB-XL dataset in dataset/
@@ -99,7 +99,7 @@ Every request is timed by a middleware ([`src/api/monitoring.py`](src/api/monito
 ```bash
 curl http://localhost:8000/stats
 # {"request_count": 4, "avg_latency_ms": 309.12, "client_errors_4xx": 0, "server_errors_5xx": 0,
-#  "uptime_s": 14.1, "model_version": "ecg_model_20261106_014053_lgbm",
+#  "uptime_s": 14.1, "model_version": "ecg_model_20261125_202220_ensemble",
 #  "per_endpoint": {"GET /health": {...}, "POST /predict": {"count": 3, "avg_latency_ms": 411.0, ...}}}
 ```
 
@@ -149,34 +149,55 @@ python scripts/predict_sample.py samples/sample_upload_TEST_PATIENT.csv http://1
 ## Pipeline
 
 1. **Data preparation** ([`src/pipeline/prepare_data.py`](src/pipeline/prepare_data.py)), separate from training. Validation per ECG (`validate_signal` in [`src/utils/features.py`](src/utils/features.py)): shape `(time, 12)`, at least 100 samples, **no missing/NaN/inf values**, **amplitude within +/-50 mV**; records without a diagnostic label are dropped. A summary is written to `data/processed/validation_report.json` (this run: 411 unlabelled records dropped, 0 invalid signals, 21,388 used). Then 467 features per ECG: per-lead statistics, spectral band powers, heart rate and variability, median-beat shape, lead correlations.
-2. **Training** ([`src/pipeline/train.py`](src/pipeline/train.py)) loads the prepared data, runs a FLAML AutoML search (LightGBM, XGBoost, ExtraTrees, RandomForest; 3-fold CV; macro-F1), evaluates the best model on the held-out fold, and **saves it to `models/ecg_model_<timestamp>_<estimator>.joblib`** (with a `*_metrics.json` next to it). It also registers it in the MLflow registry as `ecg_model_v1` if macro-F1 is at least the best registered.
+2. **Training** ([`src/pipeline/train.py`](src/pipeline/train.py)) loads the prepared data, runs a FLAML AutoML search (LightGBM, XGBoost, ExtraTrees, RandomForest; 3-fold CV; macro-F1), then picks the best soft-voting combination of {AutoML model, HistGradientBoosting, logistic regression} on the PTB-XL **validation fold 9** and refits it on folds 1-9. It scores the final model once on the held-out fold 10 and saves it as `models/ecg_model_<timestamp>_<tag>.joblib` (with a `*_metrics.json` next to it). **Promotion gate:** the new model replaces the served one (and is registered as `ecg_model_v1` in MLflow) only if its accuracy and macro-F1 are both at least the served model's; otherwise it goes to `models/rejected/`. The superseded model moves to `models/archive/`.
 3. **API** ([`src/api`](src/api)): `POST /predict`, `POST /explain` (per-lead importance by masking), `GET /health`, `GET /stats` (request count and latency), `GET /model` (held-out metrics and training date), Swagger at `/docs`, and a web UI at `/` (see below). Inputs are validated with Pydantic and `validate_signal` (HTTP 400 on bad input).
 
 ## MLflow experiments
 
-Experiment `ECG_AutoML_Phase1`. Every training run creates one parent run (`automl_parent`, full AutoML search) and **four child runs** (`trial_lgbm`, `trial_xgboost`, `trial_extra_tree`, `trial_rf`), each logging its model choice, best hyper-parameters (`best_config`), time budget, accuracy and macro-F1 on the held-out fold.
+Experiment `ECG_AutoML_Phase1` (`mlflow ui --backend-store-uri sqlite:///mlflow.db`). Every training run creates a parent
+run (`automl_parent`), **four child runs** for the AutoML trials (`trial_lgbm`, `trial_xgboost`, `trial_extra_tree`,
+`trial_rf`: model choice, best hyper-parameters, time budget, accuracy and macro-F1) and an `ensemble_selection` run
+(candidates, chosen combination, fold-9 validation scores).
 
-| Run | Model | Macro-F1 | Accuracy |
-|-----|-------|----------|----------|
-| `trial_lgbm` | LightGBM | **0.627** | 71.3% |
-| `trial_xgboost` | XGBoost | 0.613 | 70.3% |
-| `trial_extra_tree` | ExtraTrees | 0.572 | 68.8% |
-| `trial_rf` | RandomForest | 0.533 | 65.1% |
-| `automl_parent` | best of all (LightGBM) | **0.633** | **72.4%** |
+### Milestone 2 retraining (current model, 25 Nov 2026)
 
-### Best run and why
+Run `2d96a8b3` (`AUTOML_TIME_BUDGET=300`, about 12 minutes). Ensemble chosen on validation fold 9, scored once on fold 10:
 
-**Best run: `automl_parent` (MLflow run `936d2b09`), LightGBM.** Held-out fold 10: accuracy 72.4%, macro-F1 0.633, F1 normal-vs-abnormal 0.854.
+| Run / candidate | Model | Fold-9 accuracy | Fold-10 macro-F1 | Fold-10 accuracy |
+|-----|-------|-----------------|------------------|------------------|
+| `trial_lgbm` | LightGBM | | 0.633 | 72.4% |
+| `trial_xgboost` | XGBoost | | 0.633 | 71.6% |
+| `trial_extra_tree` | ExtraTrees | | 0.578 | 68.8% |
+| `trial_rf` | RandomForest | | 0.576 | 68.8% |
+| ensemble candidate | LightGBM alone | 73.2% | | |
+| ensemble candidate | HistGradientBoosting alone | 73.7% | | |
+| **`automl_parent`** | **LightGBM + HistGB + LogReg (soft vote)** | **74.0%** | **0.640** | **72.9%** |
+| previous served model | LightGBM (run `936d2b09`, 6 Nov) | | 0.633 | 72.4% |
 
-Justification: it has the highest macro-F1, our selection metric, because classes are unequal and accuracy alone would favour NORM. It beats every single-family trial (best: LightGBM 0.627 with a short budget) because the full search spends more time tuning the winning family. Gradient boosting (LightGBM, XGBoost) clearly beats the bagged trees on these features. Per-class F1: NORM 0.84, STTC 0.66, MI 0.64, CD 0.63, HYP 0.41. HYP is weakest because it has the fewest examples (1,288). This is the Milestone 1 baseline that later model improvements will be compared against.
+**Best run: `automl_parent` `2d96a8b3`, soft-voting ensemble.** Held-out fold 10: accuracy **72.85%**, macro-F1
+**0.640**, F1 normal-vs-abnormal **0.856** (previous model: 72.43%, 0.633, 0.854). Per-class F1: NORM 0.84, STTC 0.66,
+CD 0.64, MI 0.63, HYP 0.43.
+
+Why this model: averaging the probabilities of three different model types (boosted trees with leaf-wise and
+histogram-based growth, plus a linear model) reduces the errors any single model makes, and it was the best
+combination on the validation fold. The test fold played no part in choosing it, so the gain is not tuned to the test
+set. It passed the promotion gate on both accuracy and macro-F1, so it replaced the previous model automatically.
+A longer AutoML search alone did not help: a 1,200 s run found a LightGBM with 72.1% / 0.628, which the gate kept out.
+
+### Milestone 1 baseline (6 Nov 2026)
+
+Run `936d2b09`, LightGBM from a 240 s AutoML search: accuracy 72.4%, macro-F1 0.633, F1 normal-vs-abnormal 0.854.
+Single-family trials: LightGBM 0.627, XGBoost 0.613, ExtraTrees 0.572, RandomForest 0.533 macro-F1. Gradient boosting
+clearly beats bagged trees on these features; HYP is the weakest class because it has the fewest examples (1,288).
 
 ## Repository layout
 
 ```
 src/pipeline/prepare_data.py   data validation + feature extraction
-src/pipeline/train.py          AutoML training, evaluation, model saving, MLflow
+src/pipeline/train.py          AutoML + validated ensemble, evaluation, promotion gate, MLflow
 src/utils/features.py          features + validate_signal
-src/utils/model_loader.py      loads the registered model for the API
+src/utils/model_loader.py      loads the served model for the API
+src/utils/ensemble.py          soft-voting ensemble used by the current model
 src/api/                       FastAPI app (/predict, /explain, /health, /stats)
 src/api/static/                web UI (HTML/CSS/JS, served at /) + two sample ECGs
 scripts/predict_sample.py      send a sample ECG to the running API
@@ -186,7 +207,7 @@ Dockerfile, .dockerignore      API container image
 deploy/                        EC2 create/destroy, server setup, deploy + rollback scripts
 DEPLOYMENT.md, RUNBOOK.md      deployment steps; redeploy and rollback procedures
 models/                        saved model artifacts (ecg_model_<timestamp>_<est>.joblib)
-tests/                         25 pytest tests
+tests/                         27 pytest tests
 ruff.toml                      lint rules (ruff check .)
 .github/workflows/ci.yml       CI: lint, test, Docker build + push to GHCR
 docs/                          presentations
