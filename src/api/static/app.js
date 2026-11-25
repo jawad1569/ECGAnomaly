@@ -346,7 +346,8 @@ async function loadModelInfo() {
     const dateText = date && !isNaN(date)
       ? date.toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
       : "unknown";
-    const est = { lgbm: "LightGBM", xgboost: "XGBoost", rf: "Random forest", extra_tree: "Extra trees" }[m.estimator] || m.estimator || "model";
+    const est = m.estimator_label ||
+      { lgbm: "LightGBM", xgboost: "XGBoost", rf: "Random forest", extra_tree: "Extra trees" }[m.estimator] || m.estimator || "model";
     $("m-acc").textContent = pct(m.accuracy);
     $("m-f1").textContent = m.f1_macro == null ? "–" : m.f1_macro.toFixed(3);
     $("m-f1ab").textContent = m.f1_abnormal == null ? "–" : m.f1_abnormal.toFixed(3);

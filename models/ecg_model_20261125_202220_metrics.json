@@ -1,0 +1,17 @@
+{
+  "best_estimator": "ensemble",
+  "estimator_label": "Ensemble (LightGBM + HistGradientBoosting + Logistic regression)",
+  "members": [
+    "lgbm",
+    "hgb",
+    "logreg"
+  ],
+  "accuracy": 0.7284522706209453,
+  "f1_macro": 0.640214275175252,
+  "f1_abnormal": 0.8558758314855875,
+  "n_test": 2158,
+  "val_accuracy": 0.7399813606710158,
+  "val_f1_macro": 0.6508689842832542,
+  "trained_at": "2026-11-25T20:22:20",
+  "mlflow_run_id": "2d96a8b3a9ec4c1f86291d435131f274"
+}

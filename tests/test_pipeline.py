@@ -72,3 +72,29 @@ def test_missing_model_gives_clear_error(monkeypatch, tmp_path):
         assert get_model(raise_on_error=False) == (None, None)
     finally:
         model_loader.reset_model_cache()
+
+
+def test_soft_voting_ensemble_averages_member_probabilities():
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.tree import DecisionTreeClassifier
+
+    from src.utils.ensemble import SoftVotingEnsemble
+
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(200, 5))
+    y = (X[:, 0] + X[:, 1] > 0).astype(int)
+    members = [LogisticRegression(), DecisionTreeClassifier(max_depth=3)]
+    ens = SoftVotingEnsemble(members, ["lr", "dt"]).fit(X, y)
+    expected = np.mean([m.predict_proba(X) for m in ens.members_], axis=0)
+    assert np.allclose(ens.predict_proba(X), expected)
+    assert set(ens.predict(X)) <= {0, 1}
+
+
+def test_promotion_gate_needs_accuracy_and_f1_not_worse():
+    from src.pipeline.train import is_better
+
+    served = {"accuracy": 0.724, "f1_macro": 0.633}
+    assert is_better({"accuracy": 0.728, "f1_macro": 0.640}, served)
+    assert not is_better({"accuracy": 0.730, "f1_macro": 0.620}, served)  # F1 worse
+    assert not is_better({"accuracy": 0.720, "f1_macro": 0.650}, served)  # accuracy worse
+    assert is_better({"accuracy": 0.5, "f1_macro": 0.5}, None)            # nothing served yet
