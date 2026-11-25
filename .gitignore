@@ -68,3 +68,7 @@ docs/PHASE1_DELIVERABLES.md
 dataset/
 mlflow.db
 .pytest_cache/
+
+# EC2 instance details written by deploy/aws_create_ec2.ps1
+.ec2-instance.json
+*.pem
