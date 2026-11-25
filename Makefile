@@ -1,4 +1,7 @@
-.PHONY: setup data train dev test lint format clean check
+.PHONY: setup data train dev test lint format clean check docker-build docker-run docker-stop
+
+IMAGE ?= ecg-api
+TAG ?= latest
 
 setup:
 	pip install -r requirements-dev.txt
@@ -17,6 +20,16 @@ dev:
 
 test:
 	pytest -v
+
+# Docker: build the API image and run it on http://localhost:8000
+docker-build:
+	docker build -t $(IMAGE):$(TAG) .
+
+docker-run:
+	docker run -d --name ecg-api -p 8000:8000 $(IMAGE):$(TAG)
+
+docker-stop:
+	docker rm -f ecg-api
 
 lint:
 	ruff check .

@@ -9,13 +9,16 @@ Usage:
     python manage.py test        # Run tests
     python manage.py lint        # Run linters
     python manage.py format      # Format code
+    python manage.py docker-build  # Build the API Docker image
+    python manage.py docker-run    # Run it on http://localhost:8000
+    python manage.py docker-stop   # Stop and remove the container
 """
 
 import subprocess
+import sys
 
 
 def run_command(cmd, description, cwd=None):
-import sys
     """Execute a shell command and handle errors."""
     print(f"\n{'='*60}")
     print(f"Running: {description}")
@@ -57,6 +60,12 @@ def main():
             "desc": "Clean Cache Files",
         },
         "check": {"cmd": "pre-commit run --all-files", "desc": "Pre-commit Hooks"},
+        "docker-build": {"cmd": "docker build -t ecg-api:latest .", "desc": "Build Docker image"},
+        "docker-run": {
+            "cmd": "docker run -d --name ecg-api -p 8000:8000 ecg-api:latest",
+            "desc": "Run API container on http://localhost:8000",
+        },
+        "docker-stop": {"cmd": "docker rm -f ecg-api", "desc": "Stop and remove API container"},
         "data": {
             "cmd": "python src/pipeline/prepare_data.py",
             "desc": "Data Preparation (validate + features)",
