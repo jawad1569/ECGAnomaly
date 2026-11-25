@@ -17,6 +17,8 @@ logging.getLogger("urllib3").setLevel(logging.CRITICAL)
 logging.getLogger("requests").setLevel(logging.CRITICAL)
 
 from fastapi import FastAPI
+
+from src.api import monitoring
 from src.api.routers import health, predict
 
 app = FastAPI(
@@ -27,8 +29,11 @@ app = FastAPI(
 
 mlflow_uri = os.getenv("MLFLOW_TRACKING_URI", "sqlite:///mlflow.db")
 
+app.middleware("http")(monitoring.track_requests)
+
 app.include_router(health.router)
 app.include_router(predict.router)
+app.include_router(monitoring.router)
 
 
 @app.on_event("startup")
