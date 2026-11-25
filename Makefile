@@ -1,7 +1,7 @@
 .PHONY: setup data train dev test lint format clean check
 
 setup:
-	pip install -r requirements.txt
+	pip install -r requirements-dev.txt
 
 # Step 1: validate PTB-XL (dataset/) and build features
 data:

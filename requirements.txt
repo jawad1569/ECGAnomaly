@@ -1,34 +1,12 @@
-# Core API
-fastapi
-uvicorn
-pydantic
-python-dotenv
-python-multipart
-sniffio
+# API runtime: what the Docker image needs to serve the saved model.
+# Training, tracking, tests and linting are in requirements-dev.txt.
+fastapi==0.165.0
+uvicorn==0.54.0
+pydantic==2.14.4
+python-dotenv==1.2.4
 
-# ML & feature engineering
-pandas
-numpy
-scipy
-joblib
-wfdb          # reads the PTB-XL WFDB records
-scikit-learn
-xgboost
-lightgbm        # used by FLAML as one of its estimators
-
-# AutoML (model selection)
-flaml[automl]
-
-# Experiment tracking & model registry
-mlflow
-
-# Testing & code quality
-pytest
-pytest-cov
-ruff
-black
-pre-commit
-
-# Misc
-requests
-urllib3>=2.6.0
+numpy==2.4.6
+scipy==1.17.1
+scikit-learn==1.7.2      # same version the committed model was saved with
+lightgbm==4.7.0        # the saved model (models/ecg_model_*_lgbm.joblib) is a LightGBM classifier
+joblib==1.6.0
