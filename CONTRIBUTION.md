@@ -4,8 +4,8 @@
 
 | Member | ERP ID | Role |
 |--------|--------|------|
-| Muhammad Jawad Maqsood | `<ERP ID>` | Data preparation, model training, MLflow; Milestone 2 infrastructure, deployment and model improvement |
-| Sudharth Kumar | `<ERP ID>` | FastAPI service, tests, documentation |
+| Muhammad Jawad Maqsood | `27080` | Data preparation, model training, MLflow; Milestone 2 Docker/CI, AWS deployment and model improvement |
+| Sudharth Kumar | `26925` | FastAPI service, tests, documentation; Milestone 2 linting, monitoring, web UI and documentation |
 
 ## Milestone 1: Model & API (`v1.0-milestone1`)
 
@@ -23,14 +23,16 @@
 | Task | Branch / PR | Owner |
 |------|-------------|-------|
 | Pinned, split requirements; model loads from the committed file when MLflow is absent | `fix/model-fallback` | Muhammad Jawad Maqsood |
-| Ruff configuration and lint fixes | `infra/lint` | Muhammad Jawad Maqsood |
-| Monitoring: `/stats` request count and latency, structured request logs | `feat/stats` | Muhammad Jawad Maqsood |
+| Ruff configuration and lint fixes | `infra/lint` | Sudharth Kumar |
+| Monitoring: `/stats` request count and latency, structured request logs | `feat/stats` | Sudharth Kumar |
 | Dockerfile with `/health` healthcheck; GitHub Actions CI (lint, test, Docker build, GHCR push); `pytest.ini` fix for CI | `infra/docker-ci` | Muhammad Jawad Maqsood |
 | AWS EC2 deployment scripts (provision, setup, deploy with automatic rollback, destroy), DEPLOYMENT.md, RUNBOOK.md, live deployment and rollback rehearsal | `infra/deploy` | Muhammad Jawad Maqsood |
-| README and AI usage updates for Milestone 2 | `docs/milestone2` | Muhammad Jawad Maqsood |
-| Web UI, `/model` endpoint (accuracy and training date), labelled held-out test ECGs | `feat/web-ui` | Muhammad Jawad Maqsood |
-| Project focus: validated ensemble and promotion gate in training; retrained model (72.85% accuracy, macro-F1 0.640); Project Focus and video walkthrough in README | `feat/retrain-ensemble` | Muhammad Jawad Maqsood |
-| `<Sudharth: add your Milestone 2 tasks here, e.g. PR reviews, video>` | | Sudharth Kumar |
+| README and AI usage updates for Milestone 2 | `docs/milestone2` | Sudharth Kumar |
+| Web UI and `/model` endpoint (accuracy and training date) | `feat/web-ui` | Sudharth Kumar |
+| Labelled held-out test ECGs for the web UI | `feat/web-ui` | Muhammad Jawad Maqsood |
+| Project focus: validated ensemble and promotion gate in training; retrained model (72.85% accuracy, macro-F1 0.640) | `feat/retrain-ensemble` | Muhammad Jawad Maqsood |
+| Project Focus section and video walkthrough in README | `feat/retrain-ensemble` | Muhammad Jawad Maqsood, Sudharth Kumar |
+| Peer review of the other member's pull requests (one approval per PR) | all branches | Both |
 
 AI assistance is disclosed in [AI_USAGE.md](AI_USAGE.md).
 
@@ -42,7 +44,10 @@ as much as automation: CI only caught real problems once its test command matche
 needed a promotion gate so a worse model could never replace a better one. I also learned how account-level policies
 (the single-Region rule of our AWS project) can block a deployment that looks correct.
 
-**Sudharth Kumar:** `<2-3 lines on what you built and what you learned in Milestone 2>`
+**Sudharth Kumar:** I added Ruff linting, a `/stats` endpoint with request count, latency and structured request logs,
+and a web UI with a `/model` endpoint that shows the model's accuracy and training date. I also updated the README and
+AI usage notes. I learned that monitoring and linting are worth setting up early: structured logs made it easy to see
+what the API was doing, and the lint check in CI caught style problems before they reached `main`.
 
 ## Branching
 
@@ -51,7 +56,7 @@ needed a promotion gate so a worse model could never replace a better one. I als
   - `fix/<topic>` bug fixes
   - `infra/<topic>` CI, Docker, deployment
   - `docs/<topic>` documentation
-- Every pull request to `main` needs **one peer approval** and a green CI run (lint, test, build).
+- Every pull request to `main` needs **one peer approval** (from the other team member) and a green CI run (lint, test, build).
 - Pull requests are merged with **"Create a merge commit"** (the Milestone 2 branches are stacked on each other).
 - Commits are small and spread across the semester.
 
